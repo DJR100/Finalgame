@@ -5,6 +5,7 @@ import {
   Dimensions,
   TouchableOpacity,
   Text,
+  GestureResponderEvent,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -17,6 +18,10 @@ const GRID_WIDTH = Math.floor(Dimensions.get("window").width / CELL_SIZE);
 const GRID_HEIGHT = Math.floor(
   (Dimensions.get("window").height * 0.8) / CELL_SIZE
 );
+
+// Base speed and level configuration
+const BASE_SPEED = 200; // 200ms between moves
+const TOTAL_LEVELS = 10;
 
 // Colors
 const COLORS = {
@@ -37,6 +42,20 @@ const DIRECTIONS = {
   RIGHT: { x: 1, y: 0 },
 };
 
+// Add levels configuration
+const LEVELS: Level[] = [
+  { requiredFood: 3, obstacles: 0 },     // Level 1: No obstacles, need 3 food
+  { requiredFood: 4, obstacles: 3 },     // Level 2: 3 obstacles, need 4 food
+  { requiredFood: 5, obstacles: 5 },     // Level 3: 5 obstacles, need 5 food
+  { requiredFood: 6, obstacles: 8 },     // Level 4: 8 obstacles, need 6 food
+  { requiredFood: 7, obstacles: 12 },    // Level 5: 12 obstacles, need 7 food
+  { requiredFood: 8, obstacles: 12 },    // Level 6: 12 obstacles, need 8 food
+  { requiredFood: 9, obstacles: 12 },    // Level 7: 12 obstacles, need 9 food
+  { requiredFood: 10, obstacles: 12 },   // Level 8: 12 obstacles, need 10 food
+  { requiredFood: 11, obstacles: 12 },   // Level 9: 12 obstacles, need 11 food
+  { requiredFood: 12, obstacles: 12 },   // Level 10: 12 obstacles, need 12 food
+];
+
 // Initial game state
 const initialState = {
   snake: [
@@ -46,16 +65,14 @@ const initialState = {
   ],
   food: { x: 10, y: 10, color: COLORS.RED },
   direction: "RIGHT",
-  speed: 200,
+  speed: BASE_SPEED,
   score: 0,
   gameOver: false,
   snakeColor: COLORS.RED,
   showRules: true,
-  isPractice: true,
-  practiceAttemptsLeft: 3,
-  realAttemptsLeft: 3,
-  realScores: [0, 0, 0],
-  currentAttemptNumber: 0, // For real game, this will be updated via resetGame.
+  level: 1,
+  levelComplete: false,
+  remainingFood: LEVELS[0].requiredFood,
 };
 
 // Type definition for obstacles
@@ -64,116 +81,298 @@ type Obstacle = {
   y: number;
 };
 
-// Get a random position on the grid
-const getRandomPosition = () => ({
-  x: Math.floor(Math.random() * GRID_WIDTH),
-  y: Math.floor(Math.random() * GRID_HEIGHT),
-});
+// Add new Level interface
+interface Level {
+  requiredFood: number;
+  obstacles: number;
+}
 
-// Generate obstacles (a few 2x2 blocks)
-const generateObstacles = (): Obstacle[] => {
+// Generate obstacles based on level
+const generateObstacles = (level: number = 1): Obstacle[] => {
   const obstacles: Obstacle[] = [];
-  const patternLocations = [
-    {
-      startX: Math.floor(GRID_WIDTH * 0.25),
-      startY: Math.floor(GRID_HEIGHT * 0.25),
-    },
-    {
-      startX: Math.floor(GRID_WIDTH * 0.75),
-      startY: Math.floor(GRID_HEIGHT * 0.25),
-    },
-    {
-      startX: Math.floor(GRID_WIDTH * 0.5),
-      startY: Math.floor(GRID_HEIGHT * 0.75),
-    },
-  ];
+  
+  // Define standardized patterns for levels
+  // Each level will have a predictable pattern that builds upon previous levels
+  switch (level) {
+    case 1: // Level 1: Center block
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT / 2) - 1);
+      break;
+      
+    case 2: // Level 2: Center + top-bottom
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT / 2) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT / 4) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT * 0.75) - 1);
+      break;
+      
+    case 3: // Level 3: Center cross pattern
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT / 2) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT / 4) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT * 0.75) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 4) - 1, Math.floor(GRID_HEIGHT / 2) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.75) - 1, Math.floor(GRID_HEIGHT / 2) - 1);
+      break;
+      
+    case 4: // Level 4: Grid of 4 evenly spaced blocks
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.25) - 1, Math.floor(GRID_HEIGHT * 0.25) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.25) - 1, Math.floor(GRID_HEIGHT * 0.75) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.75) - 1, Math.floor(GRID_HEIGHT * 0.25) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.75) - 1, Math.floor(GRID_HEIGHT * 0.75) - 1);
+      break;
+      
+    case 5: // Level 5: X pattern
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.25) - 1, Math.floor(GRID_HEIGHT * 0.25) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.25) - 1, Math.floor(GRID_HEIGHT * 0.75) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.75) - 1, Math.floor(GRID_HEIGHT * 0.25) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.75) - 1, Math.floor(GRID_HEIGHT * 0.75) - 1);
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.5) - 1, Math.floor(GRID_HEIGHT * 0.5) - 1);
+      break;
+      
+    case 6: // Level 6: Border pattern - top and bottom
+      for (let x = 2; x < GRID_WIDTH - 2; x += 3) {
+        addBlockAtPosition(obstacles, x, 1);
+        addBlockAtPosition(obstacles, x, GRID_HEIGHT - 3);
+      }
+      break;
+      
+    case 7: // Level 7: Border pattern - left and right
+      for (let y = 2; y < GRID_HEIGHT - 2; y += 3) {
+        addBlockAtPosition(obstacles, 1, y);
+        addBlockAtPosition(obstacles, GRID_WIDTH - 3, y);
+      }
+      // Add center obstacle
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT / 2) - 1);
+      break;
+      
+    case 8: // Level 8: Symmetrical H pattern
+      // Vertical bars
+      for (let y = Math.floor(GRID_HEIGHT * 0.25); y <= Math.floor(GRID_HEIGHT * 0.75); y += 3) {
+        addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.25) - 1, y);
+        addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.75) - 1, y);
+      }
+      // Horizontal bar
+      for (let x = Math.floor(GRID_WIDTH * 0.25) - 1; x <= Math.floor(GRID_WIDTH * 0.75) - 1; x += 3) {
+        addBlockAtPosition(obstacles, x, Math.floor(GRID_HEIGHT / 2) - 1);
+      }
+      break;
+      
+    case 9: // Level 9: Maze-like pattern
+      // Create a symmetrical maze pattern
+      // Vertical dividers
+      for (let y = 2; y < GRID_HEIGHT - 2; y += 2) {
+        if (y % 4 === 0) continue; // Skip every other row for pathways
+        addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 3) - 1, y);
+        addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 2/3) - 1, y);
+      }
+      // Horizontal dividers
+      for (let x = 2; x < GRID_WIDTH - 2; x += 2) {
+        if (x % 4 === 0) continue; // Skip every other column for pathways
+        addBlockAtPosition(obstacles, x, Math.floor(GRID_HEIGHT / 3) - 1);
+        addBlockAtPosition(obstacles, x, Math.floor(GRID_HEIGHT * 2/3) - 1);
+      }
+      break;
+      
+    case 10: // Level 10: Final boss - spiral pattern
+      // Create a spiral pattern
+      const spiralPositions = [
+        // Outer border - top
+        ...Array.from({length: Math.floor(GRID_WIDTH * 0.8)}, (_, i) => ({
+          x: Math.floor(GRID_WIDTH * 0.1) + i,
+          y: Math.floor(GRID_HEIGHT * 0.2)
+        })),
+        // Right side
+        ...Array.from({length: Math.floor(GRID_HEIGHT * 0.6)}, (_, i) => ({
+          x: Math.floor(GRID_WIDTH * 0.8),
+          y: Math.floor(GRID_HEIGHT * 0.2) + i
+        })),
+        // Bottom
+        ...Array.from({length: Math.floor(GRID_WIDTH * 0.6)}, (_, i) => ({
+          x: Math.floor(GRID_WIDTH * 0.8) - i,
+          y: Math.floor(GRID_HEIGHT * 0.8)
+        })),
+        // Left inner
+        ...Array.from({length: Math.floor(GRID_HEIGHT * 0.4)}, (_, i) => ({
+          x: Math.floor(GRID_WIDTH * 0.2),
+          y: Math.floor(GRID_HEIGHT * 0.8) - i
+        })),
+        // Top inner
+        ...Array.from({length: Math.floor(GRID_WIDTH * 0.4)}, (_, i) => ({
+          x: Math.floor(GRID_WIDTH * 0.2) + i,
+          y: Math.floor(GRID_HEIGHT * 0.4)
+        })),
+        // Right inner
+        ...Array.from({length: Math.floor(GRID_HEIGHT * 0.2)}, (_, i) => ({
+          x: Math.floor(GRID_WIDTH * 0.6),
+          y: Math.floor(GRID_HEIGHT * 0.4) + i
+        })),
+      ];
+      
+      // Add spiral obstacles (thinned out to allow movement)
+      spiralPositions.forEach((pos, index) => {
+        if (index % 3 === 0) { // Only place every third block to create passageways
+          obstacles.push({ x: pos.x, y: pos.y });
+        }
+      });
+      break;
+      
+    default:
+      // Fallback for any level beyond 10
+      // Create a cross pattern that scales with level
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT / 2) - 1);
+      for (let i = 1; i <= Math.min(5, level); i++) {
+        // Add blocks in a cross pattern radiating from center
+        addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1 + (i * 3), Math.floor(GRID_HEIGHT / 2) - 1);
+        addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1 - (i * 3), Math.floor(GRID_HEIGHT / 2) - 1);
+        addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT / 2) - 1 + (i * 3));
+        addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH / 2) - 1, Math.floor(GRID_HEIGHT / 2) - 1 - (i * 3));
+      }
+      break;
+  }
+  
+  return obstacles;
+};
 
-  patternLocations.forEach((location) => {
+// Helper function to add a 2x2 block at specified position
+const addBlockAtPosition = (obstacles: Obstacle[], startX: number, startY: number) => {
+  // Ensure coordinates are within boundaries
+  if (startX < 0 || startX >= GRID_WIDTH - 1 || startY < 0 || startY >= GRID_HEIGHT - 1) {
+    return; // Skip if outside grid
+  }
+  
+  // Add a 2x2 block of obstacles
     for (let i = 0; i < 2; i++) {
       for (let j = 0; j < 2; j++) {
         obstacles.push({
-          x: location.startX + i,
-          y: location.startY + j,
+        x: startX + i,
+        y: startY + j,
         });
       }
     }
-  });
-  return obstacles;
+};
+
+// Get a random position on the grid (avoiding obstacles and snake)
+const getRandomPosition = (obstacles: Obstacle[] = [], snake: {x: number, y: number}[] = []): { x: number; y: number } => {
+  let position: { x: number; y: number } = {
+    x: Math.floor(Math.random() * GRID_WIDTH),
+    y: Math.floor(Math.random() * GRID_HEIGHT),
+  };
+  
+  // Try to find a valid position (not on obstacle or snake)
+  let attempts = 0;
+  const MAX_ATTEMPTS = 100; // Prevent infinite loop
+  
+  while (attempts < MAX_ATTEMPTS) {
+    position = {
+      x: Math.floor(Math.random() * GRID_WIDTH),
+      y: Math.floor(Math.random() * GRID_HEIGHT),
+    };
+    
+    // Check if position overlaps with any obstacle
+    const onObstacle = obstacles.some(
+      obstacle => obstacle.x === position.x && obstacle.y === position.y
+    );
+    
+    // Check if position overlaps with snake
+    const onSnake = snake.some(
+      segment => segment.x === position.x && segment.y === position.y
+    );
+    
+    // If position is valid, break the loop
+    if (!onObstacle && !onSnake) {
+      break;
+    }
+    
+    attempts++;
+  }
+  
+  // If we couldn't find a position after max attempts, find the first available position
+  if (attempts >= MAX_ATTEMPTS) {
+    for (let x = 0; x < GRID_WIDTH; x++) {
+      for (let y = 0; y < GRID_HEIGHT; y++) {
+        const candidatePosition = { x, y };
+        
+        // Check if this position is free
+        const onObstacle = obstacles.some(
+          obstacle => obstacle.x === x && obstacle.y === y
+        );
+        
+        const onSnake = snake.some(
+          segment => segment.x === x && segment.y === y
+        );
+        
+        if (!onObstacle && !onSnake) {
+          return candidatePosition;
+        }
+      }
+    }
+  }
+  
+  return position;
 };
 
 // ScoreTracker class to keep score reliably
 class ScoreTracker {
-  private scores: number[];
   private currentScore: number;
-  private currentAttempt: number;
+  private highScore: number;
   private foodEatenCount: number;
+  private currentLevel: number;
+  private remainingFoodInLevel: number;
 
   constructor() {
-    this.scores = [0, 0, 0];
     this.currentScore = 0;
-    this.currentAttempt = 0;
+    this.highScore = 0;
     this.foodEatenCount = 0;
+    this.currentLevel = 1;
+    this.remainingFoodInLevel = LEVELS[0].requiredFood;
   }
 
-  // Track food eaten (for potential speed calculations)
+  setLevel(level: number) {
+    this.currentLevel = level;
+    this.remainingFoodInLevel = LEVELS[level - 1].requiredFood;
+  }
+
   incrementFoodEaten() {
     this.foodEatenCount++;
-    return this.foodEatenCount;
+    this.remainingFoodInLevel--;
+    
+    // Check if level is complete
+    if (this.remainingFoodInLevel === 0 && this.currentLevel < TOTAL_LEVELS) {
+      return true; // Indicates level complete
+    }
+    return false;
   }
 
-  // Increment score by a given number of points
-  incrementScore(points: number) {
-    this.currentScore += points;
-    console.log(
-      `SCORE DEBUG: Food eaten: ${this.foodEatenCount}, Score: ${this.currentScore}`
-    );
-    return this.currentScore;
+  advanceToNextLevel() {
+    if (this.currentLevel < TOTAL_LEVELS) {
+      this.currentLevel++;
+      this.remainingFoodInLevel = LEVELS[this.currentLevel - 1].requiredFood;
+    }
+  }
+
+  getCurrentLevel() {
+    return this.currentLevel;
+  }
+
+  getRemainingFood() {
+    return this.remainingFoodInLevel;
+  }
+
+  getSpeedForCurrentLevel() {
+    // Return constant base speed for all levels
+    return BASE_SPEED;
   }
 
   getCurrentScore() {
-    return this.currentScore;
-  }
-
-  startNewAttempt(attemptNumber: number, previousScores?: number[]) {
-    if (previousScores && previousScores.length === 3) {
-      this.scores = [...previousScores];
-      console.log("Starting new attempt with preserved scores:", this.scores);
-    }
-    this.currentAttempt = attemptNumber;
-    this.currentScore = 0;
-    this.foodEatenCount = 0;
-  }
-
-  finalizeAttempt() {
-    // If currentAttempt is 0 (i.e. first attempt), treat it as attempt 1.
-    if (this.currentAttempt <= 0) {
-      this.currentAttempt = 1;
-    }
-    if (this.currentAttempt > 0 && this.currentAttempt <= 3) {
-      // Ensure we record the score for the current attempt.
-      if (this.currentScore > 0 || this.scores[this.currentAttempt - 1] === 0) {
-        this.scores[this.currentAttempt - 1] = this.currentScore;
-      }
-    }
-    return {
-      scores: [...this.scores],
-      currentScore: this.currentScore,
-    };
-  }
-
-  getAllScores() {
-    return [...this.scores];
-  }
-
-  reset() {
-    this.scores = [0, 0, 0];
-    this.currentScore = 0;
-    this.currentAttempt = 0;
-    this.foodEatenCount = 0;
-  }
-
-  getFoodEatenCount() {
     return this.foodEatenCount;
+  }
+
+  getHighScore() {
+    return this.highScore;
+  }
+
+  reset(selectedLevel: number = 1) {
+    this.currentScore = 0;
+    this.foodEatenCount = 0;
+    this.setLevel(selectedLevel);
   }
 }
 
@@ -189,10 +388,9 @@ function calculatePointsForFood(
 export default function Game() {
   const [gameState, setGameState] = useState({ ...initialState });
   const [highScore, setHighScore] = useState(0);
-  const [obstacles] = useState(generateObstacles());
+  const [obstacles, setObstacles] = useState(generateObstacles(1)); // Start with level 1 obstacles
   const gameLoopInterval = useRef<NodeJS.Timeout | null>(null);
   const scoreTracker = useRef(new ScoreTracker());
-  const latestScores = useRef<number[]>([0, 0, 0]);
 
   // Load high score on mount
   useEffect(() => {
@@ -234,52 +432,76 @@ export default function Game() {
       head.x = (head.x + GRID_WIDTH) % GRID_WIDTH;
       head.y = (head.y + GRID_HEIGHT) % GRID_HEIGHT;
 
-      // Check collision with obstacles or self
-      if (
-        obstacles.some((obs) => obs.x === head.x && obs.y === head.y) ||
-        newSnake.some((segment) => segment.x === head.x && segment.y === head.y)
-      ) {
+      // Check collision with self (excluding the tail which will move)
+      // We use slice(0, -1) to exclude the tail piece that will be removed
+      const selfCollision = newSnake.slice(0, -1).some(
+        (segment) => segment.x === head.x && segment.y === head.y
+      );
+
+      // Check collision with obstacles - use strict equality for coordinates
+      const obstacleCollision = obstacles.some(
+        (obstacle) => obstacle.x === head.x && obstacle.y === head.y
+      );
+
+      // Trigger game over if any collision is detected
+      if (selfCollision || obstacleCollision) {
         handleGameOver();
         return prevState;
       }
 
       newSnake.unshift(head);
 
-      // If food is eaten, update score using the ref and adjust speed
+      // If food is eaten
       if (head.x === prevState.food.x && head.y === prevState.food.y) {
-        const pointsEarned = calculatePointsForFood(
-          prevState.food,
-          newSnake.length
-        );
-        scoreTracker.current.incrementScore(pointsEarned);
+        const levelComplete = scoreTracker.current.incrementFoodEaten();
+        const remainingFood = scoreTracker.current.getRemainingFood();
 
-        // Calculate new speed (with a cap)
-        const newSpeed = Math.max(
-          80,
-          prevState.speed -
-            Math.min(60, Math.floor(7 * Math.log(newSnake.length + 1)))
-        );
+        // Immediately stop the game if level is complete
+        if (levelComplete) {
+          if (gameLoopInterval.current) {
+            clearInterval(gameLoopInterval.current);
+          }
+          return {
+            ...prevState,
+            snake: newSnake,
+            snakeColor: prevState.food.color,
+            levelComplete: true,
+            score: scoreTracker.current.getCurrentScore(),
+            remainingFood: 0,
+            // Add a style property to ensure the level complete screen appears on top
+            overlayStyle: {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 999,
+            },
+          };
+        }
 
+        // Continue game if level not complete
         return {
           ...prevState,
           snake: newSnake,
           snakeColor: prevState.food.color,
           food: {
-            ...getRandomPosition(),
+            ...getRandomPosition(obstacles, newSnake.slice(1)),
             color: Object.values(COLORS).filter(
               (c) => c !== COLORS.GREY && c !== COLORS.BLACK
             )[Math.floor(Math.random() * 5)],
           },
-          speed: newSpeed,
-          score: scoreTracker.current.getCurrentScore(), // update UI display
+          score: scoreTracker.current.getCurrentScore(),
+          remainingFood,
         };
-      } else {
+      }
+
+      // Snake continues moving
         newSnake.pop();
         return {
           ...prevState,
           snake: newSnake,
         };
-      }
     });
   };
 
@@ -288,83 +510,72 @@ export default function Game() {
     if (gameLoopInterval.current) {
       clearInterval(gameLoopInterval.current);
     }
-    if (!gameState.gameOver) {
-      gameLoopInterval.current = setInterval(moveSnake, gameState.speed);
+    // Only start the game loop if the game is actively running
+    if (!gameState.gameOver && !gameState.levelComplete) {
+      // Always use BASE_SPEED instead of gameState.speed to ensure consistent speed
+      gameLoopInterval.current = setInterval(moveSnake, BASE_SPEED);
     }
     return () => {
       if (gameLoopInterval.current) {
         clearInterval(gameLoopInterval.current);
       }
     };
-  }, [gameState.speed, gameState.gameOver]);
+  }, [gameState.gameOver, gameState.levelComplete]); // Remove gameState.speed from dependencies
 
-  // Handle game over: clear the interval and send final score using the ref value.
+  // Handle game over: clear the interval and update high score
   const handleGameOver = () => {
     if (gameLoopInterval.current) {
       clearInterval(gameLoopInterval.current);
     }
     const finalScore = scoreTracker.current.getCurrentScore();
 
-    // Finalize this attempt and update our scores array.
-    scoreTracker.current.finalizeAttempt();
-    latestScores.current = scoreTracker.current.getAllScores();
-
     setGameState((prev) => ({
       ...prev,
       gameOver: true,
       score: finalScore,
-      realScores: latestScores.current,
     }));
 
-    // Decouple score sending from game speed using setTimeout
-    setTimeout(() => {
-      if (typeof window !== "undefined" && window.ReactNativeWebView) {
-        // Send the current attempt's score
-        const scoreUpdate = {
-          type: "attemptScore",
-          attemptNumber: gameState.currentAttemptNumber,
-          score: finalScore,
-          attemptsLeft: gameState.realAttemptsLeft - 1,
-          allScores: latestScores.current,
-          isHighScore: finalScore > highScore,
-        };
-        window.ReactNativeWebView.postMessage(JSON.stringify(scoreUpdate));
-        console.log("Attempt score update sent:", scoreUpdate);
+    // Update high score if needed
+    if (finalScore > highScore) {
+      saveHighScore(finalScore);
+    }
+  };
 
-        // After the final real attempt, send comprehensive score data.
-        if (!gameState.isPractice && gameState.realAttemptsLeft <= 1) {
-          const highestScore = Math.max(
-            ...latestScores.current.filter(
-              (score) => typeof score === "number" && !isNaN(score)
-            )
-          );
+  // Simplified reset game function
+  const resetGame = (selectedLevel: number = 1) => {
+    scoreTracker.current.reset(selectedLevel);
+    const levelObstacles = generateObstacles(selectedLevel);
+    setObstacles(levelObstacles);
+    
+    // Initial snake position
+    const initialSnake = [
+      { x: 5, y: 5 },
+      { x: 4, y: 5 },
+      { x: 3, y: 5 },
+    ];
+    
+    // Make sure food doesn't spawn on obstacles or the snake
+    const initialFood = {
+      ...getRandomPosition(levelObstacles, initialSnake),
+      color: Object.values(COLORS).filter(
+        (c) => c !== COLORS.GREY && c !== COLORS.BLACK
+      )[Math.floor(Math.random() * 5)],
+    };
+    
+    setGameState({
+      ...initialState,
+      showRules: false,
+      level: selectedLevel,
+      speed: BASE_SPEED, // Constant speed for all levels
+      remainingFood: LEVELS[selectedLevel - 1].requiredFood,
+      snake: initialSnake,
+      food: initialFood,
+    });
+  };
 
-          const finalScoreData = {
-            type: "finalScores",
-            scores: latestScores.current,
-            attemptScores: {
-              attempt1: latestScores.current[0] || 0,
-              attempt2: latestScores.current[1] || 0,
-              attempt3: latestScores.current[2] || 0,
-            },
-            allHighScores: {
-              sessionHighScore: highestScore,
-              overallHighScore: highScore,
-            },
-            isComplete: true,
-          };
-          window.ReactNativeWebView.postMessage(JSON.stringify(finalScoreData));
-          console.log("Final scores sent:", finalScoreData);
-
-          // Optionally update the overall high score
-          if (highestScore > highScore) {
-            saveHighScore(highestScore);
-          }
-        }
-      } else {
-        console.warn("ReactNativeWebView not available");
-      }
-    }, 100); // Short delay to ensure game state is fully updated
+  // Handler for level selection
+  const handleLevelSelect = (level: number) => (_: GestureResponderEvent) => {
+    resetGame(level);
   };
 
   // Handle gesture-based direction changes.
@@ -390,58 +601,6 @@ export default function Game() {
     setGameState((prev) => ({ ...prev, showRules: false }));
   };
 
-  const resetGame = () => {
-    setGameState((prev) => {
-      if (prev.isPractice && prev.practiceAttemptsLeft <= 1) {
-        // Transition from practice to real game:
-        scoreTracker.current.reset();
-        latestScores.current = [0, 0, 0];
-        return {
-          ...initialState,
-          showRules: false,
-          isPractice: false,
-          practiceAttemptsLeft: 0,
-          realAttemptsLeft: 3,
-          realScores: [0, 0, 0],
-          currentAttemptNumber: 1,
-        };
-      }
-      if (!prev.isPractice && prev.realAttemptsLeft <= 1) {
-        // Game completely over
-        scoreTracker.current.reset();
-        latestScores.current = [0, 0, 0];
-        return { ...initialState };
-      }
-      if (!prev.isPractice) {
-        // Next real attempt: update attempt number and start new attempt in the score tracker.
-        const nextAttemptNumber = prev.currentAttemptNumber + 1;
-        scoreTracker.current.startNewAttempt(
-          nextAttemptNumber,
-          latestScores.current
-        );
-        return {
-          ...initialState,
-          showRules: false,
-          isPractice: false,
-          practiceAttemptsLeft: 0,
-          realAttemptsLeft: prev.realAttemptsLeft - 1,
-          realScores: latestScores.current,
-          currentAttemptNumber: nextAttemptNumber,
-        };
-      }
-      // For practice mode, simply decrement practiceAttemptsLeft.
-      return {
-        ...initialState,
-        showRules: false,
-        isPractice: true,
-        practiceAttemptsLeft: prev.practiceAttemptsLeft - 1,
-        realAttemptsLeft: 3,
-        realScores: [0, 0, 0],
-        currentAttemptNumber: 0,
-      };
-    });
-  };
-
   // Swipe gesture handling (only allowing 90-degree turns)
   const swipeGesture = Gesture.Pan().onEnd((event) => {
     const { translationX, translationY } = event;
@@ -456,7 +615,7 @@ export default function Game() {
     }
   });
 
-  // Rules screen component
+  // Rules screen component with level selection
   const RulesScreen = () => (
     <View style={styles.rulesScreen}>
       <Text style={styles.rulesTitle}>CHROMA{"\n"}SNAKE</Text>
@@ -469,35 +628,141 @@ export default function Game() {
         {"     └─ ┘    \n"}
       </Text>
       <View style={styles.rulesContainer}>
-        <Text style={styles.rulesText}>EAT FRUIT, SPEED UP!</Text>
-        <Text style={styles.rulesText}>AVOID BLOCKS</Text>
-        <Text style={styles.rulesText}>PRACTICE × 3</Text>
-        <Text style={styles.rulesText}>REAL GAME × 3</Text>
+        <Text style={[styles.rulesText, { color: COLORS.RED }]}>ONE ATTEMPT PER LEVEL!</Text>
+        <Text style={[styles.rulesText, { color: COLORS.RED }]}>AVOID BLOCKS OR START OVER!</Text>
+        
+        <View style={styles.levelGrid}>
+          {LEVELS.map((_, index) => (
+            <TouchableOpacity
+              key={index}
+              style={styles.levelCard}
+              onPress={() => resetGame(index + 1)}
+            >
+              <Text style={styles.levelCardTitle}>{index + 1}</Text>
+            </TouchableOpacity>
+          ))}
       </View>
-      <TouchableOpacity style={styles.playButton} onPress={startGame}>
-        <Text style={styles.playButtonText}>PLAY!</Text>
+      </View>
+      <TouchableOpacity 
+        style={styles.playButton} 
+        onPress={() => {
+          resetGame(1);
+        }}
+      >
+        <Text style={styles.playButtonText}>START FROM LEVEL 1</Text>
       </TouchableOpacity>
     </View>
   );
 
-  // Display current attempt info
-  const AttemptsDisplay = () => {
-    const attemptNumber = gameState.isPractice
-      ? Math.max(1, 4 - gameState.practiceAttemptsLeft)
-      : Math.max(1, 4 - gameState.realAttemptsLeft);
-    return (
-      <View style={styles.attemptsContainer}>
-        <Text
-          style={[
-            styles.attemptsText,
-            { color: gameState.isPractice ? COLORS.GREEN : COLORS.RED },
-          ]}
-        >
-          {`${gameState.isPractice ? "PRACTICE" : "REAL"} ${attemptNumber}/3`}
+  // Add level completion handler
+  const handleLevelComplete = () => {
+    scoreTracker.current.advanceToNextLevel();
+    const nextLevel = scoreTracker.current.getCurrentLevel();
+    setObstacles(generateObstacles(nextLevel)); // Update obstacles for the next level
+    
+    setGameState({
+      ...initialState,
+      showRules: false,
+      level: nextLevel,
+      speed: BASE_SPEED, // Use constant base speed directly
+      remainingFood: scoreTracker.current.getRemainingFood(),
+      score: scoreTracker.current.getCurrentScore(),
+      snake: [
+        { x: 5, y: 5 },
+        { x: 4, y: 5 },
+        { x: 3, y: 5 },
+      ],
+      food: { 
+        ...getRandomPosition(generateObstacles(nextLevel), [
+          { x: 5, y: 5 },
+          { x: 4, y: 5 },
+          { x: 3, y: 5 },
+        ]), // Use new obstacles for food position
+        color: Object.values(COLORS).filter(
+          (c) => c !== COLORS.GREY && c !== COLORS.BLACK
+        )[Math.floor(Math.random() * 5)],
+      },
+      levelComplete: false,
+    });
+  };
+
+  // Game Over screen component
+  const GameOverScreen = () => (
+    <View style={styles.gameOver}>
+      <Text style={styles.gameOverText}>Game Over!</Text>
+      <Text style={styles.scoreText}>Level {gameState.level} Failed</Text>
+      <Text style={styles.scoreText}>Fruit Collected: {gameState.score}</Text>
+      <Text style={[styles.rulesText, { color: COLORS.RED, marginTop: 20 }]}>
+        You've been eliminated!
+      </Text>
+      <TouchableOpacity 
+        style={[styles.replayButton, { marginTop: 30 }]}
+        onPress={() => {
+          setGameState({
+            ...initialState,
+            showRules: true,
+          });
+        }}
+      >
+        <Text style={styles.replayText}>Return to Menu</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // Level complete screen component
+  const LevelCompleteScreen = () => (
+    <View style={styles.levelComplete}>
+      <Text style={styles.levelCompleteText}>Level {gameState.level} Complete!</Text>
+      <Text style={styles.scoreText}>Fruit Collected: {LEVELS[gameState.level - 1].requiredFood}</Text>
+      <Text style={styles.scoreText}>Total Progress: {gameState.score}/{LEVELS.slice(0, gameState.level).reduce((acc, level) => acc + level.requiredFood, 0)}</Text>
+      {gameState.level < TOTAL_LEVELS ? (
+        <>
+          <Text style={[styles.rulesText, { marginTop: 20, marginBottom: 20, color: COLORS.GREEN }]}>
+            Level {gameState.level + 1} Unlocked!
         </Text>
+          <Text style={[styles.rulesText, { marginBottom: 20 }]}>
+            Next Challenge: Collect {LEVELS[gameState.level].requiredFood} Fruit
+          </Text>
+          <TouchableOpacity
+            style={styles.nextLevelButton}
+            onPress={handleLevelComplete}
+          >
+            <Text style={styles.nextLevelText}>Start Level {gameState.level + 1}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.replayButton, { marginTop: 20, backgroundColor: COLORS.BLUE }]}
+            onPress={() => {
+              setGameState({
+                ...initialState,
+                showRules: true,
+              });
+            }}
+          >
+            <Text style={styles.replayText}>Return to Menu</Text>
+          </TouchableOpacity>
+        </>
+      ) : (
+        <>
+          <Text style={styles.gameCompleteText}>Game Complete!</Text>
+          <Text style={[styles.rulesText, { color: COLORS.GREEN }]}>
+            You've Mastered All Levels!
+          </Text>
+          <Text style={styles.scoreText}>Total Fruit: {gameState.score}</Text>
+          <TouchableOpacity
+            style={[styles.replayButton, { marginTop: 30 }]}
+            onPress={() => {
+              setGameState({
+                ...initialState,
+                showRules: true,
+              });
+            }}
+          >
+            <Text style={styles.replayText}>Return to Menu</Text>
+          </TouchableOpacity>
+        </>
+      )}
       </View>
     );
-  };
 
   return (
     <GestureHandlerRootView style={styles.container}>
@@ -507,8 +772,9 @@ export default function Game() {
         <>
           <View style={styles.headerContainer}>
             <View style={styles.scoreContainer}>
-              <Text style={styles.scoreText}>SCORE: {gameState.score}</Text>
-              <AttemptsDisplay />
+              <Text style={styles.scoreText}>LEVEL: {gameState.level}</Text>
+              <Text style={styles.scoreText}>FRUIT NEEDED: {gameState.remainingFood}</Text>
+              <Text style={styles.scoreText}>COLLECTED: {gameState.score}</Text>
             </View>
           </View>
           <GestureDetector gesture={swipeGesture}>
@@ -554,46 +820,13 @@ export default function Game() {
             </View>
           </GestureDetector>
           {gameState.gameOver && (
-            <View style={styles.gameOver}>
-              <Text style={styles.gameOverText}>Game Over!</Text>
-              <Text style={styles.scoreText}>Score: {gameState.score}</Text>
-              <Text
-                style={[
-                  styles.attemptsText,
-                  { color: gameState.isPractice ? COLORS.GREEN : COLORS.RED },
-                ]}
-              >
-                {gameState.isPractice
-                  ? `Practice ${Math.max(
-                      1,
-                      4 - gameState.practiceAttemptsLeft
-                    )}/3`
-                  : `Real ${Math.max(1, 4 - gameState.realAttemptsLeft)}/3`}
-              </Text>
-              {!gameState.isPractice && gameState.realAttemptsLeft <= 1 ? (
-                <TouchableOpacity
-                  style={[
-                    styles.replayButton,
-                    { backgroundColor: COLORS.BLUE },
-                  ]}
-                  onPress={resetGame}
-                >
-                  <Text style={[styles.replayText, { color: COLORS.BLACK }]}>
-                    LEADERBOARD
-                  </Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={styles.replayButton}
-                  onPress={resetGame}
-                >
-                  <Text style={styles.replayText}>
-                    {gameState.isPractice && gameState.practiceAttemptsLeft <= 1
-                      ? "Start Real Game"
-                      : "Try Again"}
-                  </Text>
-                </TouchableOpacity>
-              )}
+            <View style={[styles.overlay, styles.gameOver]}>
+              <GameOverScreen />
+            </View>
+          )}
+          {gameState.levelComplete && !gameState.gameOver && (
+            <View style={[styles.overlay, styles.levelComplete]}>
+              <LevelCompleteScreen />
             </View>
           )}
         </>
@@ -753,16 +986,101 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 2,
   },
-  attemptsContainer: {
-    flexDirection: "row",
+  levelComplete: {
+    flex: 1,
+    justifyContent: "center",
     alignItems: "center",
+    backgroundColor: COLORS.BLACK,
+    padding: 15,
   },
-  attemptsText: {
-    color: COLORS.ORANGE,
-    fontSize: 16,
+  levelCompleteText: {
+    color: COLORS.RED,
+    fontSize: 48,
+    fontWeight: "bold",
+    fontFamily: "monospace",
+    textTransform: "uppercase",
+    letterSpacing: 4,
+    textShadowColor: "rgba(255, 0, 0, 0.75)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 1,
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  nextLevelButton: {
+    backgroundColor: COLORS.GREEN,
+    padding: 15,
+    borderRadius: 0,
+    borderWidth: 4,
+    borderColor: "#00FF00",
+    borderBottomColor: "#008000",
+    borderRightColor: "#008000",
+  },
+  nextLevelText: {
+    color: COLORS.BLACK,
+    fontSize: 20,
+    fontWeight: "bold",
     fontFamily: "monospace",
     textTransform: "uppercase",
     letterSpacing: 2,
+  },
+  gameCompleteText: {
+    color: COLORS.RED,
+    fontSize: 48,
     fontWeight: "bold",
+    fontFamily: "monospace",
+    textTransform: "uppercase",
+    letterSpacing: 4,
+    textShadowColor: "rgba(255, 0, 0, 0.75)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 1,
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  levelGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    gap: 8,
+    marginVertical: 20,
+    paddingHorizontal: 10,
+  },
+  levelCard: {
+    backgroundColor: COLORS.ORANGE,
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 0,
+    borderWidth: 3,
+    borderColor: "#FFC04D",
+    borderBottomColor: "#CC8400",
+    borderRightColor: "#CC8400",
+    margin: 4,
+  },
+  levelCardTitle: {
+    color: COLORS.BLACK,
+    fontSize: 24,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
+  },
+  levelCardInfo: {
+    color: COLORS.BLACK,
+    fontSize: 14,
+    fontFamily: 'monospace',
+    textAlign: 'center',
+    marginVertical: 2,
+  },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
   },
 });
