@@ -141,6 +141,8 @@ interface Level {
 export default function Game() {
   const [gameState, setGameState] = useState({ ...initialState });
   const [highScore, setHighScore] = useState(0);
+  const [highestAchievedScore, setHighestAchievedScore] = useState(0);
+  const [currentSessionHighScore, setCurrentSessionHighScore] = useState(0);
   const [obstacles, setObstacles] = useState<Obstacle[]>([]); // Start with empty obstacles
   const [levelSpeed, setLevelSpeed] = useState(BASE_SPEED); // Track the current level's speed
   const gameLoopInterval = useRef<NodeJS.Timeout | null>(null);
@@ -255,15 +257,25 @@ export default function Game() {
         const newLives = currentGameState.lives - 1;
         const isGameOver = newLives <= 0;
 
-        // Reset score to levelStartScore and update ScoreTracker
-        scoreTracker.current.setScore(currentGameState.levelStartScore);
+        // Update highest achieved score if current session score is higher
+        if (currentSessionHighScore > highestAchievedScore) {
+          setHighestAchievedScore(currentSessionHighScore);
+        }
+
+        // Only reset score if player has lives remaining
+        const newScore = isGameOver ? currentSessionHighScore : currentGameState.levelStartScore;
+        
+        // Only reset ScoreTracker if player has lives remaining
+        if (!isGameOver) {
+          scoreTracker.current.setScore(currentGameState.levelStartScore);
+        }
 
         return {
           ...currentGameState,
           snake: newSnake,
           gameOver: true,
           lives: newLives,
-          score: currentGameState.levelStartScore // Always reset to level start score
+          score: newScore
         };
       }
 
@@ -271,6 +283,12 @@ export default function Game() {
       if (head.x === currentGameState.food.x && head.y === currentGameState.food.y) {
         const levelComplete = scoreTracker.current.incrementFoodEaten();
         const remainingFood = scoreTracker.current.getRemainingFood();
+        const newScore = scoreTracker.current.getCurrentScore();
+
+        // Update session high score if new score is higher
+        if (newScore > currentSessionHighScore) {
+          setCurrentSessionHighScore(newScore);
+        }
 
         // Handle level completion
         if (levelComplete) {
@@ -279,10 +297,10 @@ export default function Game() {
             snake: newSnake,
             snakeColor: currentGameState.food.color,
             levelComplete: true,
-            score: scoreTracker.current.getCurrentScore(),
+            score: newScore,
             remainingFood: 0,
-            lives: 3, // Reset lives for new level
-            levelStartScore: scoreTracker.current.getCurrentScore(), // Update level start score
+            lives: 3,
+            levelStartScore: newScore,
             overlayStyle: {
               position: 'absolute',
               top: 0,
@@ -305,17 +323,17 @@ export default function Game() {
               (c) => c !== COLORS.GREY && c !== COLORS.BLACK
             )[Math.floor(Math.random() * 5)],
           },
-          score: scoreTracker.current.getCurrentScore(),
+          score: newScore,
           remainingFood,
         };
       }
 
       // Snake continues moving without eating
-        newSnake.pop();
-        return {
+      newSnake.pop();
+      return {
         ...currentGameState,
-          snake: newSnake,
-        };
+        snake: newSnake,
+      };
     });
   };
 
@@ -561,7 +579,7 @@ export default function Game() {
         <TouchableOpacity 
           style={[styles.replayButton, { marginTop: 30, backgroundColor: COLORS.GREEN }]}
           onPress={() => {
-            // Reset snake position but keep score and level
+            // Reset snake position but keep score
             const levelConfig = getLevelById(gameState.level);
             const initialSnake = [
               { x: 2, y: 1 },
@@ -569,7 +587,7 @@ export default function Game() {
               { x: 0, y: 1 },
             ];
             
-            // Reset the remaining food count in the score tracker
+            // Reset only the remaining food count in the score tracker
             scoreTracker.current.setLevel(gameState.level);
             
             setGameState(prev => ({
@@ -584,7 +602,8 @@ export default function Game() {
                   (c) => c !== COLORS.GREY && c !== COLORS.BLACK
                 )[Math.floor(Math.random() * 5)],
               },
-              score: prev.levelStartScore, // Reset to start of level score
+              // Keep the current score instead of resetting to levelStartScore
+              score: scoreTracker.current.getCurrentScore(),
             }));
 
             // Restart game loop
@@ -602,27 +621,24 @@ export default function Game() {
 
   // Game Over screen component
   const GameOverScreen = () => {
-    // Send final scores to React Native app when component mounts
     useEffect(() => {
-      // Only send if we're in a WebView environment
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(JSON.stringify({
           type: 'FINAL_SCORES',
           scores: {
             level: gameState.level,
-            totalFruit: gameState.score,
+            totalFruit: currentSessionHighScore,
             timestamp: new Date().toISOString()
           }
         }));
       }
-    }, []); // Empty dependency array ensures this runs once when game over screen mounts
+    }, []);
 
     return (
       <View style={styles.gameOver}>
         <Text style={styles.gameOverText}>You've Been Eliminated!</Text>
         <Text style={styles.scoreText}>Level {gameState.level} Failed</Text>
-        <Text style={[styles.scoreText, { marginTop: 15 }]}>Total Fruit Collected: {gameState.score}</Text>
-        <Text style={[styles.scoreText, { color: COLORS.YELLOW, marginTop: 15 }]}>Position: X</Text>
+        <Text style={[styles.scoreText, { marginTop: 15 }]}>Total Fruit Collected: {currentSessionHighScore}</Text>
         <TouchableOpacity 
           style={[styles.replayButton, { marginTop: 30 }]}
           onPress={() => {
@@ -630,6 +646,8 @@ export default function Game() {
               ...initialState,
               showRules: true,
             });
+            setCurrentSessionHighScore(0);
+            setHighestAchievedScore(0);
           }}
         >
           <Text style={styles.replayText}>Return to Menu</Text>
@@ -755,6 +773,9 @@ export default function Game() {
       levelStartScore: 0, // Reset level start score
       score: 0, // Reset score when starting from a new level
     });
+    
+    setCurrentSessionHighScore(0); // Reset session high score
+    setHighestAchievedScore(0); // Reset highest achieved score
     
     // CRITICAL FIX: Force start the game loop after a short delay to ensure state is updated
     setTimeout(() => {

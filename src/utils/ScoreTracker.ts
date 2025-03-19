@@ -22,7 +22,8 @@ export default class ScoreTracker {
   setLevel(level: number) {
     this.currentLevel = level;
     this.remainingFoodInLevel = getLevelById(level).requiredFood;
-    // Don't reset foodEatenCount or totalFoodEaten when changing levels
+    this.foodEatenCount = 0;  // Reset food eaten in current level only
+    // Don't reset totalFoodEaten
   }
 
   incrementFoodEaten() {
@@ -67,7 +68,10 @@ export default class ScoreTracker {
   }
 
   setScore(score: number) {
-    this.totalFoodEaten = score;
+    // Only update the total food eaten if the new score is higher
+    if (score > this.totalFoodEaten) {
+      this.totalFoodEaten = score;
+    }
     this.foodEatenCount = 0;  // Reset food eaten in current level
     this.remainingFoodInLevel = getLevelById(this.currentLevel).requiredFood;  // Reset remaining food
   }
