@@ -175,41 +175,35 @@ export default function Game() {
     }
   };
 
-  // Handle game over: clear the interval and update high score
-  const handleGameOver = useCallback(() => {
-    // Cancel any animation frame
+  // Handle game over
+  const handleGameOver = () => {
+    console.log('Handling game over');
+    // Cancel animation frame
     if (animationFrameId.current) {
       cancelAnimationFrame(animationFrameId.current);
       animationFrameId.current = null;
     }
     
-    // Clear any lingering interval as a backup
-    if (gameLoopInterval.current) {
-      clearInterval(gameLoopInterval.current);
-      gameLoopInterval.current = null;
-    }
-    
-    const finalScore = scoreTracker.current.getCurrentScore();
-
-    setGameState((prev) => ({
-      ...prev,
+    // Update game state to show game over
+    setGameState(currentState => ({
+      ...currentState,
       gameOver: true,
-      score: finalScore,
     }));
-
-    // Update high score if needed
-    if (finalScore > highScore) {
-      saveHighScore(finalScore);
-    }
-  }, [highScore, saveHighScore]);
+  };
 
   // Game loop and moveSnake function reorganized to avoid circular dependencies
   const moveSnake = () => {
     setGameState(currentGameState => {
+      // If game is already over, don't process any more moves
+      if (currentGameState.gameOver) {
+        return currentGameState;
+      }
+
       const newSnake = [...currentGameState.snake];
       const head = { ...newSnake[0] };
       const direction = DIRECTIONS[currentGameState.direction as keyof typeof DIRECTIONS];
 
+      // Calculate new head position
       head.x += direction.x;
       head.y += direction.y;
 
@@ -217,32 +211,43 @@ export default function Game() {
       head.x = (head.x + GRID_WIDTH) % GRID_WIDTH;
       head.y = (head.y + GRID_HEIGHT) % GRID_HEIGHT;
 
-      // Check collision with self (excluding the tail which will move)
-      const selfCollision = newSnake.slice(0, -1).some(
+      // Add new head to snake for collision checks
+      newSnake.unshift(head);
+
+      // Check collision with self (excluding the tail)
+      const selfCollision = newSnake.slice(1, -1).some(
         (segment) => segment.x === head.x && segment.y === head.y
       );
 
-      // Check collision with obstacles - use strict equality for coordinates
-      // Use a closure to capture the current obstacles state
+      // Check collision with obstacles
       const obstacleCollision = obstacles.some(
-        (obstacle) => {
-          const collision = obstacle.x === head.x && obstacle.y === head.y;
-          if (collision) {
-            console.log('Collision detected with obstacle at:', obstacle.x, obstacle.y);
-          }
-          return collision;
-        }
+        (obstacle) => obstacle.x === head.x && obstacle.y === head.y
       );
 
-      // Trigger game over if any collision is detected
+      // If collision detected, trigger game over immediately
       if (selfCollision || obstacleCollision) {
-        console.log('Game over triggered by:', selfCollision ? 'self collision' : 'obstacle collision');
-        // We'll handle the game over separately to avoid circular dependencies
-        setTimeout(() => handleGameOver(), 0);
-        return currentGameState; // Return unchanged state
-      }
+        // Cancel animation frame immediately
+        if (animationFrameId.current) {
+          cancelAnimationFrame(animationFrameId.current);
+          animationFrameId.current = null;
+        }
 
-      newSnake.unshift(head);
+        // Clear any lingering interval
+        if (gameLoopInterval.current) {
+          clearInterval(gameLoopInterval.current);
+          gameLoopInterval.current = null;
+        }
+
+        // Reset timer reference
+        lastUpdateTime.current = 0;
+
+        return {
+          ...currentGameState,
+          snake: newSnake,
+          gameOver: true,
+          score: scoreTracker.current.getCurrentScore()
+        };
+      }
 
       // Check if food is eaten
       if (head.x === currentGameState.food.x && head.y === currentGameState.food.y) {
@@ -275,7 +280,6 @@ export default function Game() {
           snake: newSnake,
           snakeColor: currentGameState.food.color,
           food: {
-            // Use the entire snake for checking collisions when spawning food
             ...getRandomPosition(obstacles, newSnake),
             color: Object.values(COLORS).filter(
               (c) => c !== COLORS.GREY && c !== COLORS.BLACK
@@ -287,23 +291,36 @@ export default function Game() {
       }
 
       // Snake continues moving without eating
-        newSnake.pop();
-        return {
+      newSnake.pop();
+      return {
         ...currentGameState,
-          snake: newSnake,
-        };
+        snake: newSnake,
+      };
     });
   };
 
   // Game loop function that uses the moveSnake function
   const gameLoop = (timestamp: number) => {
+    // If game is over, stop immediately and clean up
+    if (gameState.gameOver) {
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+      if (gameLoopInterval.current) {
+        clearInterval(gameLoopInterval.current);
+        gameLoopInterval.current = null;
+      }
+      lastUpdateTime.current = 0;
+      return;
+    }
+
     if (!lastUpdateTime.current) lastUpdateTime.current = timestamp;
     
     const elapsed = timestamp - lastUpdateTime.current;
     
     // Only update game state if enough time has passed (level-specific speed)
     if (elapsed > levelSpeed) {
-      console.log('Game loop update at speed:', levelSpeed);
       moveSnake();
       lastUpdateTime.current = timestamp;
     }
@@ -314,10 +331,14 @@ export default function Game() {
     } else {
       // If game is over or level complete, ensure animation frame is canceled
       if (animationFrameId.current) {
-        console.log('Canceling game loop due to:', gameState.gameOver ? 'game over' : 'level complete');
         cancelAnimationFrame(animationFrameId.current);
         animationFrameId.current = null;
       }
+      if (gameLoopInterval.current) {
+        clearInterval(gameLoopInterval.current);
+        gameLoopInterval.current = null;
+      }
+      lastUpdateTime.current = 0;
     }
   };
 
@@ -474,10 +495,12 @@ export default function Game() {
         {"     │ └┐    \n"}
         {"     └─ ┘    \n"}
       </Text>
+      <View style={styles.redLine} />
       <View style={styles.rulesContainer}>
-        <Text style={[styles.rulesText, { color: COLORS.RED }]}>ONE ATTEMPT PER LEVEL!</Text>
-        <Text style={[styles.rulesText, { color: COLORS.RED }]}>AVOID BLOCKS OR START OVER!</Text>
-        
+        <Text style={[styles.rulesText]}>THREE ATTEMPTS PER LEVEL!</Text>
+        <Text style={[styles.rulesText]}>COLLECT FRUIT TO ADVANCE!</Text>
+        <Text style={[styles.rulesText]}>HIT BLOCKS - LOSE LIVES!</Text>
+        <View style={styles.redLine} />
         <View style={styles.levelGrid}>
           {levels.map((level) => (
             <TouchableOpacity
@@ -488,7 +511,7 @@ export default function Game() {
               <Text style={styles.levelCardTitle}>{level.id}</Text>
             </TouchableOpacity>
           ))}
-      </View>
+        </View>
       </View>
       <TouchableOpacity 
         style={styles.playButton} 
@@ -507,13 +530,10 @@ export default function Game() {
     
     return (
       <View style={styles.gameOver}>
-        <Text style={styles.gameOverText}>Game Over!</Text>
+        <Text style={styles.gameOverText}>You've Been Eliminated!</Text>
         <Text style={styles.scoreText}>Level {gameState.level} Failed</Text>
-        <Text style={styles.levelNameText}>{currentLevelConfig.name}</Text>
-        <Text style={styles.scoreText}>Fruit Collected: {gameState.score}</Text>
-        <Text style={[styles.rulesText, { color: COLORS.RED, marginTop: 20 }]}>
-          You've been eliminated!
-        </Text>
+        <Text style={[styles.scoreText, { marginTop: 15 }]}>Total Fruit Collected: {gameState.score}</Text>
+        <Text style={[styles.scoreText, { color: COLORS.YELLOW, marginTop: 15 }]}>Position: X</Text>
         <TouchableOpacity 
           style={[styles.replayButton, { marginTop: 30 }]}
           onPress={() => {
@@ -540,16 +560,14 @@ export default function Game() {
       <View style={styles.levelComplete}>
         <Text style={styles.levelCompleteText}>Level {gameState.level} Complete!</Text>
         <Text style={styles.levelNameText}>{currentLevelConfig.name}</Text>
-        <Text style={styles.scoreText}>Fruit Collected: {currentLevelConfig.requiredFood}</Text>
-        <Text style={styles.scoreText}>Total Progress: {gameState.score}/{
-          levels.slice(0, gameState.level).reduce((acc, level) => acc + level.requiredFood, 0)
-        }</Text>
+        <Text style={styles.scoreText}>Level Fruit: {currentLevelConfig.requiredFood}</Text>
+        <Text style={[styles.scoreText, { color: COLORS.GREEN }]}>Total Fruit: {gameState.score}</Text>
         
         {hasNextLevel ? (
           <>
             <Text style={[styles.rulesText, { marginTop: 20, marginBottom: 20, color: COLORS.GREEN }]}>
               Level {nextLevel} Unlocked!
-        </Text>
+            </Text>
             <Text style={styles.levelNameText}>{nextLevelConfig?.name}</Text>
             <Text style={[styles.rulesText, { marginBottom: 20 }]}>
               Next Challenge: Collect {nextLevelConfig?.requiredFood} Fruit
@@ -578,7 +596,9 @@ export default function Game() {
             <Text style={[styles.rulesText, { color: COLORS.GREEN }]}>
               You've Mastered All Levels!
             </Text>
-            <Text style={styles.scoreText}>Total Fruit: {gameState.score}</Text>
+            <Text style={[styles.scoreText, { color: COLORS.GREEN, fontSize: 24 }]}>
+              Final Score: {gameState.score}
+            </Text>
             <TouchableOpacity
               style={[styles.replayButton, { marginTop: 30 }]}
               onPress={() => {
@@ -863,27 +883,27 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     alignItems: "center",
     backgroundColor: COLORS.BLACK,
-    padding: 15,
-    paddingTop: "10%",
+    padding: 10,
+    paddingTop: "5%",
   },
   rulesTitle: {
     color: COLORS.RED,
-    fontSize: 48,
+    fontSize: 36,
     fontWeight: "bold",
     fontFamily: "monospace",
     textTransform: "uppercase",
-    letterSpacing: 4,
+    letterSpacing: 3,
     textShadowColor: "rgba(255, 0, 0, 0.75)",
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 1,
-    marginBottom: 15,
+    marginBottom: 10,
     textAlign: "center",
   },
   snakeArt: {
     color: COLORS.GREEN,
-    fontSize: 20,
+    fontSize: 16,
     fontFamily: "monospace",
-    marginBottom: 20,
+    marginBottom: 15,
     textAlign: "center",
     textShadowColor: "rgba(0, 255, 0, 0.75)",
     textShadowOffset: { width: 1, height: 1 },
@@ -892,36 +912,51 @@ const styles = StyleSheet.create({
   rulesContainer: {
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
+    marginBottom: 15,
     width: "100%",
-    paddingHorizontal: 20,
+    paddingHorizontal: 15,
   },
   rulesText: {
-    color: COLORS.ORANGE,
-    fontSize: 24,
+    color: COLORS.GREEN,
+    fontSize: 18,
     fontFamily: "monospace",
     textTransform: "uppercase",
-    letterSpacing: 2,
-    marginBottom: 15,
-    textShadowColor: "rgba(255, 165, 0, 0.5)",
+    letterSpacing: 1,
+    marginBottom: 10,
+    textShadowColor: "rgba(0, 255, 0, 0.5)",
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 1,
     textAlign: "center",
     width: "100%",
   },
+  redLine: {
+    width: '90%',
+    height: 3,
+    backgroundColor: COLORS.RED,
+    marginVertical: 15,
+    alignSelf: 'center',
+    shadowColor: COLORS.RED,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 10,
+    zIndex: 999,
+    position: 'relative',
+    borderRadius: 1,
+  },
   playButton: {
     backgroundColor: COLORS.GREEN,
-    paddingHorizontal: 40,
-    paddingVertical: 15,
+    paddingHorizontal: 30,
+    paddingVertical: 12,
     borderRadius: 0,
-    borderWidth: 4,
+    borderWidth: 3,
     borderColor: "#00FF00",
     borderBottomColor: "#008000",
     borderRightColor: "#008000",
   },
   playButtonText: {
     color: COLORS.BLACK,
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: "bold",
     fontFamily: "monospace",
     textTransform: "uppercase",
@@ -983,26 +1018,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     width: '100%',
-    gap: 8,
-    marginVertical: 20,
-    paddingHorizontal: 10,
+    gap: 6,
+    marginVertical: 15,
+    paddingHorizontal: 8,
   },
   levelCard: {
     backgroundColor: COLORS.ORANGE,
-    width: 50,
-    height: 50,
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 0,
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: "#FFC04D",
     borderBottomColor: "#CC8400",
     borderRightColor: "#CC8400",
-    margin: 4,
+    margin: 3,
   },
   levelCardTitle: {
     color: COLORS.BLACK,
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     fontFamily: 'monospace',
   },

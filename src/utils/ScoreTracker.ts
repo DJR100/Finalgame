@@ -8,6 +8,7 @@ export default class ScoreTracker {
   private foodEatenCount: number;
   private currentLevel: number;
   private remainingFoodInLevel: number;
+  private totalFoodEaten: number;  // New field to track total food eaten across all levels
 
   constructor() {
     this.currentScore = 0;
@@ -15,15 +16,18 @@ export default class ScoreTracker {
     this.foodEatenCount = 0;
     this.currentLevel = 1;
     this.remainingFoodInLevel = getLevelById(1).requiredFood;
+    this.totalFoodEaten = 0;  // Initialize total food count
   }
 
   setLevel(level: number) {
     this.currentLevel = level;
     this.remainingFoodInLevel = getLevelById(level).requiredFood;
+    // Don't reset foodEatenCount or totalFoodEaten when changing levels
   }
 
   incrementFoodEaten() {
     this.foodEatenCount++;
+    this.totalFoodEaten++;  // Increment total food count
     this.remainingFoodInLevel--;
     
     // Check if level is complete
@@ -37,6 +41,7 @@ export default class ScoreTracker {
     if (this.currentLevel < getLevelCount()) {
       this.currentLevel++;
       this.remainingFoodInLevel = getLevelById(this.currentLevel).requiredFood;
+      // Keep the foodEatenCount and totalFoodEaten as is
     }
   }
 
@@ -54,7 +59,7 @@ export default class ScoreTracker {
   }
 
   getCurrentScore() {
-    return this.foodEatenCount;
+    return this.totalFoodEaten;  // Return total food eaten instead of current level's food
   }
 
   getHighScore() {
@@ -62,8 +67,15 @@ export default class ScoreTracker {
   }
 
   reset(selectedLevel: number = 1) {
-    this.currentScore = 0;
+    // Only reset the level-specific counters
+    this.currentLevel = selectedLevel;
+    this.remainingFoodInLevel = getLevelById(selectedLevel).requiredFood;
     this.foodEatenCount = 0;
-    this.setLevel(selectedLevel);
+    
+    if (selectedLevel === 1) {
+      // Only reset total score if starting from level 1
+      this.totalFoodEaten = 0;
+      this.currentScore = 0;
+    }
   }
 } 

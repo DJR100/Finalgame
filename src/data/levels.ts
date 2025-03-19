@@ -362,6 +362,281 @@ const levels: LevelConfig[] = [
     getSpeed: () => BASE_SPEED -100// Standard speed (200ms)
     // For customization later, you could use: getSpeed: () => BASE_SPEED - 120 // Super fast (80ms)
   },
+
+  // Level 11: Double Box Maze
+  {
+    id: 11,
+    name: "Double Box Maze",
+    requiredFood: 13,
+    description: "Navigate through nested box mazes. Collect 13 fruit to advance.",
+    generateObstacles: () => {
+      const obstacles: Obstacle[] = [];
+      
+      // Outer box parameters
+      const outerMargin = 3;
+      const innerMargin = 7;
+      
+      // Create outer box
+      for (let x = outerMargin; x < GRID_WIDTH - outerMargin; x++) {
+        // Leave gaps in the middle of each wall
+        if (x !== Math.floor(GRID_WIDTH / 2)) {
+          obstacles.push({ x, y: outerMargin });
+          obstacles.push({ x, y: GRID_HEIGHT - outerMargin - 1 });
+        }
+      }
+      for (let y = outerMargin; y < GRID_HEIGHT - outerMargin; y++) {
+        obstacles.push({ x: outerMargin, y });
+        obstacles.push({ x: GRID_WIDTH - outerMargin - 1, y });
+      }
+      
+      // Create inner box with offset gaps
+      for (let x = innerMargin; x < GRID_WIDTH - innerMargin; x++) {
+        if (x !== Math.floor(GRID_WIDTH / 2) - 2) {
+          obstacles.push({ x, y: innerMargin });
+          obstacles.push({ x, y: GRID_HEIGHT - innerMargin - 1 });
+        }
+      }
+      for (let y = innerMargin; y < GRID_HEIGHT - innerMargin; y++) {
+        if (y !== Math.floor(GRID_HEIGHT / 2) + 2) {
+          obstacles.push({ x: innerMargin, y });
+          obstacles.push({ x: GRID_WIDTH - innerMargin - 1, y });
+        }
+      }
+      
+      // Add diagonal barriers
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.25), Math.floor(GRID_HEIGHT * 0.25));
+      addBlockAtPosition(obstacles, Math.floor(GRID_WIDTH * 0.75) - 2, Math.floor(GRID_HEIGHT * 0.75) - 2);
+      
+      return obstacles;
+    },
+    getSpeed: () => BASE_SPEED - 110
+  },
+
+  // Level 12: Triple Box Challenge
+  {
+    id: 12,
+    name: "Triple Box Challenge",
+    requiredFood: 14,
+    description: "Master three concentric box mazes. Collect 14 fruit to advance.",
+    generateObstacles: () => {
+      const obstacles: Obstacle[] = [];
+      
+      // Three boxes with different margins
+      const margins = [3, 6, 9];
+      
+      margins.forEach((margin, index) => {
+        // Create horizontal walls with gaps
+        for (let x = margin; x < GRID_WIDTH - margin; x++) {
+          if (x !== Math.floor(GRID_WIDTH / 2) + index - 1) {
+            obstacles.push({ x, y: margin });
+            obstacles.push({ x, y: GRID_HEIGHT - margin - 1 });
+          }
+        }
+        
+        // Create vertical walls with offset gaps
+        for (let y = margin; y < GRID_HEIGHT - margin; y++) {
+          if (y !== Math.floor(GRID_HEIGHT / 2) - index + 1) {
+            obstacles.push({ x: margin, y });
+            obstacles.push({ x: GRID_WIDTH - margin - 1, y });
+          }
+        }
+      });
+      
+      return obstacles;
+    },
+    getSpeed: () => BASE_SPEED - 120
+  },
+
+  // Level 13: Cross Box Maze
+  {
+    id: 13,
+    name: "Cross Box Maze",
+    requiredFood: 15,
+    description: "Navigate through a complex cross-box labyrinth. Collect 15 fruit to advance.",
+    generateObstacles: () => {
+      const obstacles: Obstacle[] = [];
+      
+      // Create main box with strategic gaps
+      const margin = 3;
+      for (let x = margin; x < GRID_WIDTH - margin; x++) {
+        if (x !== Math.floor(GRID_WIDTH * 0.25) && x !== Math.floor(GRID_WIDTH * 0.75)) {
+          obstacles.push({ x, y: margin });
+          obstacles.push({ x, y: GRID_HEIGHT - margin - 1 });
+        }
+      }
+      for (let y = margin; y < GRID_HEIGHT - margin; y++) {
+        if (y !== Math.floor(GRID_HEIGHT * 0.25) && y !== Math.floor(GRID_HEIGHT * 0.75)) {
+          obstacles.push({ x: margin, y });
+          obstacles.push({ x: GRID_WIDTH - margin - 1, y });
+        }
+      }
+      
+      // Create inner cross pattern with gaps
+      const mid = Math.floor(GRID_WIDTH / 2);
+      const crossWidth = 2; // Width of cross arms
+      
+      // Horizontal cross arm
+      for (let x = margin + 3; x < GRID_WIDTH - margin - 3; x++) {
+        if (Math.abs(x - mid) > 1) { // Gap in middle
+          for (let dy = 0; dy < crossWidth; dy++) {
+            obstacles.push({ x, y: mid + dy - 1 });
+          }
+        }
+      }
+      
+      // Vertical cross arm
+      for (let y = margin + 3; y < GRID_HEIGHT - margin - 3; y++) {
+        if (Math.abs(y - Math.floor(GRID_HEIGHT / 2)) > 1) { // Gap in middle
+          for (let dx = 0; dx < crossWidth; dx++) {
+            obstacles.push({ x: mid + dx - 1, y });
+          }
+        }
+      }
+      
+      // Add corner mazes in each quadrant
+      const quadrants = [
+        { x: margin + 2, y: margin + 2 },
+        { x: GRID_WIDTH - margin - 5, y: margin + 2 },
+        { x: margin + 2, y: GRID_HEIGHT - margin - 5 },
+        { x: GRID_WIDTH - margin - 5, y: GRID_HEIGHT - margin - 5 }
+      ];
+      
+      quadrants.forEach(pos => {
+        // Create 2x2 block with a single entry point
+        addBlockAtPosition(obstacles, pos.x, pos.y);
+        // Add additional barriers around the block
+        obstacles.push({ x: pos.x - 1, y: pos.y + 1 });
+        obstacles.push({ x: pos.x + 2, y: pos.y + 1 });
+      });
+      
+      return obstacles;
+    },
+    getSpeed: () => BASE_SPEED - 130
+  },
+
+  // Level 14: Maze Chambers Elite
+  {
+    id: 14,
+    name: "Maze Chambers Elite",
+    requiredFood: 16,
+    description: "Master the ultimate chamber system. Collect 16 fruit to advance.",
+    generateObstacles: () => {
+      const obstacles: Obstacle[] = [];
+      
+      // Create outer frame with specific entry points
+      const margin = 3;
+      // Top and bottom walls with gaps
+      for (let x = margin; x < GRID_WIDTH - margin; x++) {
+        if (x !== Math.floor(GRID_WIDTH * 0.25) && x !== Math.floor(GRID_WIDTH * 0.75)) {
+          obstacles.push({ x, y: margin });
+          obstacles.push({ x, y: GRID_HEIGHT - margin - 1 });
+        }
+      }
+      // Side walls with gaps
+      for (let y = margin; y < GRID_HEIGHT - margin; y++) {
+        if (y !== Math.floor(GRID_HEIGHT * 0.25) && y !== Math.floor(GRID_HEIGHT * 0.75)) {
+          obstacles.push({ x: margin, y });
+          obstacles.push({ x: GRID_WIDTH - margin - 1, y });
+        }
+      }
+      
+      // Create complex chamber system
+      const thirds = Math.floor(GRID_WIDTH / 3);
+      
+      // Vertical chamber dividers with staggered gaps
+      for (let y = margin + 2; y < GRID_HEIGHT - margin - 2; y++) {
+        if (y % 5 !== 0) { // Create gaps every 5 blocks
+          obstacles.push({ x: thirds, y });
+          if (y % 3 !== 0) { // Different gap pattern for second divider
+            obstacles.push({ x: thirds * 2, y });
+          }
+        }
+      }
+      
+      // Horizontal barriers in each chamber with strategic gaps
+      const chamberYs = [
+        Math.floor(GRID_HEIGHT * 0.25),
+        Math.floor(GRID_HEIGHT * 0.5),
+        Math.floor(GRID_HEIGHT * 0.75)
+      ];
+      
+      chamberYs.forEach((y, index) => {
+        for (let x = margin + 2; x < GRID_WIDTH - margin - 2; x++) {
+          // Skip positions to create gaps
+          if (x === thirds + 1 || x === thirds * 2 - 1) continue;
+          if (x % (4 + index) !== 0) { // Variable gap patterns for each level
+            obstacles.push({ x, y });
+          }
+        }
+      });
+      
+      // Add strategic 2x2 blocks in each chamber
+      const blockPositions = [
+        { x: Math.floor(GRID_WIDTH * 0.2), y: Math.floor(GRID_HEIGHT * 0.3) },
+        { x: Math.floor(GRID_WIDTH * 0.5), y: Math.floor(GRID_HEIGHT * 0.4) },
+        { x: Math.floor(GRID_WIDTH * 0.8), y: Math.floor(GRID_HEIGHT * 0.6) },
+        { x: Math.floor(GRID_WIDTH * 0.3), y: Math.floor(GRID_HEIGHT * 0.7) }
+      ];
+      
+      blockPositions.forEach(pos => {
+        addBlockAtPosition(obstacles, pos.x, pos.y);
+      });
+      
+      return obstacles;
+    },
+    getSpeed: () => BASE_SPEED - 140
+  },
+
+  // Level 15: Ultimate Labyrinth
+  {
+    id: 15,
+    name: "Ultimate Labyrinth",
+    requiredFood: 17,
+    description: "Master the final challenge. Collect 17 fruit to become a legend!",
+    generateObstacles: () => {
+      const obstacles: Obstacle[] = [];
+      
+      // Create complex nested structure
+      const margins = [2, 5, 8];
+      margins.forEach((margin, index) => {
+        // Create box outline
+        for (let x = margin; x < GRID_WIDTH - margin; x++) {
+          if ((x + index) % 3 !== 0) { // Create patterned gaps
+            obstacles.push({ x, y: margin });
+            obstacles.push({ x, y: GRID_HEIGHT - margin - 1 });
+          }
+        }
+        for (let y = margin; y < GRID_HEIGHT - margin; y++) {
+          if ((y + index) % 3 !== 0) { // Create patterned gaps
+            obstacles.push({ x: margin, y });
+            obstacles.push({ x: GRID_WIDTH - margin - 1, y });
+          }
+        }
+      });
+      
+      // Add diagonal barriers
+      const positions = [0.25, 0.5, 0.75];
+      positions.forEach(pos => {
+        addBlockAtPosition(
+          obstacles,
+          Math.floor(GRID_WIDTH * pos) - 1,
+          Math.floor(GRID_HEIGHT * pos) - 1
+        );
+      });
+      
+      // Add central cross
+      const mid = Math.floor(GRID_WIDTH / 2);
+      for (let i = 4; i < GRID_WIDTH - 4; i++) {
+        if (Math.abs(i - mid) > 1) { // Leave small gap in middle
+          obstacles.push({ x: i, y: mid });
+          obstacles.push({ x: mid, y: i });
+        }
+      }
+      
+      return obstacles;
+    },
+    getSpeed: () => BASE_SPEED - 150
+  },
 ];
 
 // Export functions to work with levels

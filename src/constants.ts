@@ -10,7 +10,7 @@ export const GRID_HEIGHT = Math.floor(
 
 // Game settings
 export const BASE_SPEED = 200; // 200ms between moves
-export const TOTAL_LEVELS = 10;
+export const TOTAL_LEVELS = 15;
 
 // Colors
 export const COLORS = {
