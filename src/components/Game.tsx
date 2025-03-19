@@ -22,6 +22,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
+// Add TypeScript interface for window object
+declare global {
+  interface Window {
+    ReactNativeWebView?: {
+      postMessage(message: string): void;
+    };
+  }
+}
+
 // Import constants and types
 import { 
   GRID_WIDTH, 
@@ -593,6 +602,21 @@ export default function Game() {
 
   // Game Over screen component
   const GameOverScreen = () => {
+    // Send final scores to React Native app when component mounts
+    useEffect(() => {
+      // Only send if we're in a WebView environment
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'FINAL_SCORES',
+          scores: {
+            level: gameState.level,
+            totalFruit: gameState.score,
+            timestamp: new Date().toISOString()
+          }
+        }));
+      }
+    }, []); // Empty dependency array ensures this runs once when game over screen mounts
+
     return (
       <View style={styles.gameOver}>
         <Text style={styles.gameOverText}>You've Been Eliminated!</Text>
