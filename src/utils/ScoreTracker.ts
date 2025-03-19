@@ -66,6 +66,12 @@ export default class ScoreTracker {
     return this.highScore;
   }
 
+  setScore(score: number) {
+    this.totalFoodEaten = score;
+    this.foodEatenCount = 0;  // Reset food eaten in current level
+    this.remainingFoodInLevel = getLevelById(this.currentLevel).requiredFood;  // Reset remaining food
+  }
+
   reset(selectedLevel: number = 1) {
     // Only reset the level-specific counters
     this.currentLevel = selectedLevel;

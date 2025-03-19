@@ -21,6 +21,7 @@ export const COLORS = {
   BLUE: "#0000FF",
   GREY: "#808080",
   BLACK: "#000000",
+  WHITE: "#FFFFFF",
 };
 
 // Directions
