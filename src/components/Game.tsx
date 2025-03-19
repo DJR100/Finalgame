@@ -257,16 +257,14 @@ export default function Game() {
         const newLives = currentGameState.lives - 1;
         const isGameOver = newLives <= 0;
 
-        // Update highest achieved score if current session score is higher
-        if (currentSessionHighScore > highestAchievedScore) {
-          setHighestAchievedScore(currentSessionHighScore);
-        }
-
-        // Only reset score if player has lives remaining
-        const newScore = isGameOver ? currentSessionHighScore : currentGameState.levelStartScore;
-        
-        // Only reset ScoreTracker if player has lives remaining
-        if (!isGameOver) {
+        // On final game over, calculate true final score (base + current attempt)
+        if (isGameOver) {
+          const baseScore = scoreTracker.current.getBaseLevelScore();
+          const finalAttemptScore = scoreTracker.current.getCurrentAttemptScore();
+          const finalScore = baseScore + finalAttemptScore;
+          setCurrentSessionHighScore(finalScore);
+        } else {
+          // Reset score to base level score if not game over
           scoreTracker.current.setScore(currentGameState.levelStartScore);
         }
 
@@ -275,7 +273,9 @@ export default function Game() {
           snake: newSnake,
           gameOver: true,
           lives: newLives,
-          score: newScore
+          score: isGameOver ? 
+            scoreTracker.current.getBaseLevelScore() + scoreTracker.current.getCurrentAttemptScore() : 
+            scoreTracker.current.getBaseLevelScore()
         };
       }
 
@@ -285,13 +285,11 @@ export default function Game() {
         const remainingFood = scoreTracker.current.getRemainingFood();
         const newScore = scoreTracker.current.getCurrentScore();
 
-        // Update session high score if new score is higher
-        if (newScore > currentSessionHighScore) {
-          setCurrentSessionHighScore(newScore);
-        }
-
         // Handle level completion
         if (levelComplete) {
+          // Update session high score only when completing a level
+          setCurrentSessionHighScore(newScore);
+          
           return {
             ...currentGameState,
             snake: newSnake,
