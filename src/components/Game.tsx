@@ -114,6 +114,7 @@ const initialState = {
   gameOver: false,
   snakeColor: COLORS.RED,
   showRules: true,
+  showLevelSelection: false,
   level: 1,
   levelComplete: false,
   remainingFood: getLevelById(1).requiredFood,
@@ -151,6 +152,15 @@ export default function Game() {
   // Track the last time we updated the game state
   const lastUpdateTime = useRef(0);
   const animationFrameId = useRef<number | null>(null);
+
+  // Add a state variable to track if we're in a replay mode (scores not counted)
+  const [isReplayMode, setIsReplayMode] = useState(false);
+
+  // Add state variable to track if user has completed their first playthrough
+  const [hasCompletedPlaythrough, setHasCompletedPlaythrough] = useState(false);
+
+  // Add loading state to the component
+  const [isLoading, setIsLoading] = useState(false);
 
   // Load high score and initialize obstacles on mount
   useEffect(() => {
@@ -254,11 +264,21 @@ export default function Game() {
         // Reset timer reference
         lastUpdateTime.current = 0;
 
+        // Practice mode (replay) - just show game over screen and let user choose
+        if (isReplayMode) {
+        return {
+            ...currentGameState,
+          snake: newSnake,
+            gameOver: true,
+          };
+        }
+        
+        // Normal mode - handle lives
         const newLives = currentGameState.lives - 1;
         const isGameOver = newLives <= 0;
 
         // On final game over, calculate true final score (base + current attempt)
-        if (isGameOver) {
+        if (isGameOver && !isReplayMode) {
           const baseScore = scoreTracker.current.getBaseLevelScore();
           const finalAttemptScore = scoreTracker.current.getCurrentAttemptScore();
           const finalScore = baseScore + finalAttemptScore;
@@ -274,7 +294,7 @@ export default function Game() {
           gameOver: true,
           lives: newLives,
           score: isGameOver ? 
-            scoreTracker.current.getBaseLevelScore() + scoreTracker.current.getCurrentAttemptScore() : 
+            (isReplayMode ? 0 : scoreTracker.current.getBaseLevelScore() + scoreTracker.current.getCurrentAttemptScore()) : 
             scoreTracker.current.getBaseLevelScore()
         };
       }
@@ -327,11 +347,11 @@ export default function Game() {
       }
 
       // Snake continues moving without eating
-      newSnake.pop();
-      return {
+        newSnake.pop();
+        return {
         ...currentGameState,
-        snake: newSnake,
-      };
+          snake: newSnake,
+        };
     });
   };
 
@@ -524,10 +544,11 @@ export default function Game() {
     }
   });
 
-  // Rules screen component with level selection
-  const RulesScreen = () => (
-    <View style={styles.rulesScreen}>
-      <Text style={styles.rulesTitle}>CHROMA{"\n"}SNAKE</Text>
+  // Start screen component
+  const StartScreen = () => {
+    return (
+      <View style={styles.startScreen}>
+        <Text style={styles.gameTitle}>LevelUp</Text>
       <Text style={styles.snakeArt}>
         {"    ┌──┐     \n"}
         {"    │··│     \n"}
@@ -536,34 +557,31 @@ export default function Game() {
         {"     │ └┐    \n"}
         {"     └─ ┘    \n"}
       </Text>
-      <View style={styles.redLine} />
-      <View style={styles.rulesContainer}>
-        <Text style={[styles.rulesText]}>THREE ATTEMPTS PER LEVEL!</Text>
-        <Text style={[styles.rulesText]}>COLLECT FRUIT TO ADVANCE!</Text>
-        <Text style={[styles.rulesText]}>HIT BLOCKS - LOSE LIVES!</Text>
-        <View style={styles.redLine} />
-        <View style={styles.levelGrid}>
-          {levels.map((level) => (
-            <TouchableOpacity
-              key={level.id}
-              style={styles.levelCard}
-              onPress={() => resetGame(level.id)}
-            >
-              <Text style={styles.levelCardTitle}>{level.id}</Text>
-            </TouchableOpacity>
-          ))}
+        <Text style={[styles.rulesText, { color: COLORS.GREEN, marginTop: 10 }]}>15 levels to beat!</Text>
+        <Text style={styles.rulesText}>
+          Swipe to Move the Snake
+        </Text>
+        <Text style={styles.rulesText}>
+          Collect Fruit to Advance
+        </Text>
+        <Text style={styles.rulesText}>
+          Avoid hitting Obstacles
+        </Text>
+        
+        <TouchableOpacity
+          style={[styles.startButton, { marginTop: 30 }]}
+          onPress={() => {
+            // Start a new game from level 1
+            resetGame(1);
+            // Ensure we're not in replay mode
+            setIsReplayMode(false);
+          }}
+        >
+          <Text style={styles.startButtonText}>Start from Level 1</Text>
+        </TouchableOpacity>
       </View>
-      </View>
-      <TouchableOpacity 
-        style={styles.playButton} 
-        onPress={() => {
-          resetGame(1);
-        }}
-      >
-        <Text style={styles.playButtonText}>START FROM LEVEL 1</Text>
-      </TouchableOpacity>
-    </View>
-  );
+    );
+  };
 
   // Retry screen component when lives are lost
   const RetryScreen = () => {
@@ -612,44 +630,131 @@ export default function Game() {
           }}
         >
           <Text style={[styles.replayText, { color: COLORS.BLACK }]}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
+      </TouchableOpacity>
+    </View>
+  );
   };
 
-  // Game Over screen component
-  const GameOverScreen = () => {
-    useEffect(() => {
-      if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'FINAL_SCORES',
-          scores: {
-            level: gameState.level,
-            totalFruit: currentSessionHighScore,
-            timestamp: new Date().toISOString()
-          }
-        }));
+  // Level Selection Screen for replays
+  const LevelSelectionScreen = () => {
+    // Simple array of level numbers
+    const levelNumbers = Array.from({ length: 15 }, (_, i) => i + 1);
+
+    const startLevel = (levelId: number) => {
+      // First, properly cancel any ongoing animations
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
       }
-    }, []);
+      
+      // Clear any lingering intervals
+      if (gameLoopInterval.current) {
+        clearInterval(gameLoopInterval.current);
+        gameLoopInterval.current = null;
+      }
+      
+      // Set replay mode
+      setIsReplayMode(true);
+      
+      // Use a simple timeout to ensure state is updated before game starts
+      setTimeout(() => {
+        // Move directly to selected level
+        const levelConfig = getLevelById(levelId);
+        const levelObstacles = levelConfig.generateObstacles();
+        
+        // Set obstacles directly
+        setObstacles(levelObstacles);
+        
+        // Set level speed
+        setLevelSpeed(levelConfig.getSpeed());
+        
+        // Reset the score tracker
+        scoreTracker.current.reset(levelId);
+        
+        // Initial snake position
+        const initialSnake = [
+          { x: 2, y: 1 },
+          { x: 1, y: 1 },
+          { x: 0, y: 1 },
+        ];
+        
+        // Set game state
+        setGameState({
+          ...initialState,
+          showRules: false,
+          showLevelSelection: false,
+          level: levelId,
+          remainingFood: levelConfig.requiredFood,
+          score: 0,
+          levelStartScore: 0,
+          snake: initialSnake,
+          food: { 
+            ...getRandomPosition(levelObstacles, initialSnake),
+            color: Object.values(COLORS).filter(
+              (c) => c !== COLORS.GREY && c !== COLORS.BLACK
+            )[Math.floor(Math.random() * 5)],
+          },
+          lives: 3,
+        });
+        
+        // Start game loop with a delay to ensure state is updated
+        setTimeout(() => {
+          // Double check animation frame is null
+          if (animationFrameId.current) {
+            cancelAnimationFrame(animationFrameId.current);
+            animationFrameId.current = null;
+          }
+          
+          console.log(`Starting game loop for level ${levelId}`);
+          lastUpdateTime.current = 0;
+          animationFrameId.current = requestAnimationFrame(gameLoop);
+        }, 50);
+      }, 10);
+    };
 
     return (
-      <View style={styles.gameOver}>
-        <Text style={styles.gameOverText}>You've Been Eliminated!</Text>
-        <Text style={styles.scoreText}>Level {gameState.level} Failed</Text>
-        <Text style={[styles.scoreText, { marginTop: 15 }]}>Total Fruit Collected: {currentSessionHighScore}</Text>
-        <TouchableOpacity 
-          style={[styles.replayButton, { marginTop: 30 }]}
-          onPress={() => {
-            setGameState({
-              ...initialState,
-              showRules: true,
-            });
-            setCurrentSessionHighScore(0);
-            setHighestAchievedScore(0);
-          }}
-        >
-          <Text style={styles.replayText}>Return to Menu</Text>
-        </TouchableOpacity>
+      <View style={styles.levelSelection}>
+        <Text style={styles.levelSelectionTitle}>Select Level</Text>
+        <Text style={[styles.practiceText]}>Practice Mode - Scores Not Recorded</Text>
+        
+        <View style={styles.levelGrid}>
+          {levelNumbers.map((levelId) => (
+            <TouchableOpacity
+              key={levelId}
+              style={styles.levelCard}
+              activeOpacity={0.5}
+              onPress={() => startLevel(levelId)}
+            >
+              <Text style={styles.levelCardText}>{levelId}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        
+        {!hasCompletedPlaythrough && (
+          <TouchableOpacity 
+          style={[
+              styles.replayButton, 
+              { marginTop: 30, backgroundColor: COLORS.GREEN }
+            ]}
+            activeOpacity={0.7}
+            onPress={() => {
+              // Cancel any existing animation frames
+              if (animationFrameId.current) {
+                cancelAnimationFrame(animationFrameId.current);
+                animationFrameId.current = null;
+              }
+              // Go back to start screen only if user hasn't completed a playthrough
+              setGameState({
+                ...initialState,
+                showRules: true,
+              });
+              // Reset replay mode for a potential new game
+              setIsReplayMode(false);
+            }}
+          >
+            <Text style={[styles.replayText, { color: COLORS.BLACK }]}>Return to Start</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -659,173 +764,277 @@ export default function Game() {
     const nextLevel = gameState.level + 1;
     const hasNextLevel = nextLevel <= getLevelCount();
     const nextLevelConfig = hasNextLevel ? getLevelById(nextLevel) : null;
-    
-    return (
-      <View style={styles.levelComplete}>
-        <Text style={styles.levelCompleteText}>Level {gameState.level}{"\n"}Complete!</Text>
-        <Text style={[styles.scoreText, { color: COLORS.GREEN }]}>Total Fruit: {gameState.score}</Text>
-        
-        {hasNextLevel ? (
-          <>
-            <Text style={[styles.rulesText, { marginTop: 20, marginBottom: 20, color: COLORS.GREEN }]}>
-              Next Level: Collect {nextLevelConfig?.requiredFood} Fruit
-            </Text>
-            <TouchableOpacity
-              style={styles.nextLevelButton}
-              onPress={handleLevelComplete}
-            >
-              <Text style={styles.nextLevelText}>Start Level {nextLevel}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.replayButton, { marginTop: 20, backgroundColor: COLORS.RED }]}
-              onPress={() => {
-                setGameState({
-                  ...initialState,
-                  showRules: true,
-                });
-              }}
-            >
-              <Text style={[styles.replayText, { color: COLORS.WHITE }]}>Return to Menu</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <Text style={[styles.rulesText, { color: COLORS.GREEN }]}>
-              You've Mastered All Levels!
-            </Text>
-            <Text style={[styles.scoreText, { color: COLORS.GREEN, fontSize: 24 }]}>
-              Final Score: {gameState.score}
-            </Text>
-            <TouchableOpacity
-              style={[styles.replayButton, { marginTop: 30, backgroundColor: COLORS.RED }]}
-              onPress={() => {
-                setGameState({
-                  ...initialState,
-                  showRules: true,
-                });
-              }}
-            >
-              <Text style={[styles.replayText, { color: COLORS.WHITE }]}>Return to Menu</Text>
-            </TouchableOpacity>
-          </>
-        )}
+
+  return (
+      <View style={styles.levelCompleteOverlay}>
+        <View style={styles.levelComplete}>
+          <Text style={styles.levelCompleteText}>Level Complete</Text>
+          <Text style={[styles.scoreText, { color: COLORS.GREEN }]}>Total Fruit: {gameState.score}</Text>
+          
+          {hasNextLevel ? (
+            <>
+              <Text style={[styles.rulesText, { marginTop: 20, marginBottom: 20, color: COLORS.GREEN }]}>
+                Next Level: Collect {nextLevelConfig?.requiredFood} Fruit
+        </Text>
+              <TouchableOpacity
+                style={styles.nextLevelButton}
+                onPress={handleLevelComplete}
+              >
+                <Text style={styles.nextLevelText}>Start Level {nextLevel}</Text>
+              </TouchableOpacity>
+            </>
+      ) : (
+        <>
+              <Text style={[styles.rulesText, { color: COLORS.GREEN }]}>
+                You've Mastered All Levels!
+              </Text>
+              <Text style={[styles.scoreText, { color: COLORS.GREEN, fontSize: 24 }]}>
+                Final Score: {gameState.score}
+              </Text>
+              <TouchableOpacity
+                style={[styles.replayButton, { marginTop: 30, backgroundColor: COLORS.RED }]}
+                onPress={() => {
+                  setGameState({
+                    ...initialState,
+                    showRules: true,
+                  });
+                }}
+              >
+                <Text style={[styles.replayText, { color: COLORS.WHITE }]}>Return Home</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
       </View>
     );
   };
 
-  // Reset game function with level selection
+  // Game Over screen component
+  const GameOverScreen = () => {
+    useEffect(() => {
+      if (window.ReactNativeWebView && !isReplayMode) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'FINAL_SCORES',
+          scores: {
+            level: gameState.level,
+            totalFruit: currentSessionHighScore,
+            timestamp: new Date().toISOString()
+          }
+        }));
+      }
+      
+      // Set that user has completed a playthrough
+      setHasCompletedPlaythrough(true);
+    }, []);
+
+    return (
+      <View style={styles.gameOver}>
+        <Text style={styles.gameOverText}>You've Been Eliminated!</Text>
+        <Text style={styles.scoreText}>Level {gameState.level} Failed</Text>
+        <Text style={[styles.scoreText, { marginTop: 15 }]}>Total Fruit Collected: {currentSessionHighScore}</Text>
+        <TouchableOpacity 
+          style={[styles.replayButton, { marginTop: 30, backgroundColor: COLORS.RED }]}
+          onPress={() => {
+            setGameState({
+              ...initialState,
+              showLevelSelection: true,
+              showRules: false,
+            });
+            setIsReplayMode(true);
+          }}
+        >
+          <Text style={[styles.replayText, { color: COLORS.WHITE }]}>Home</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // Reset game function with level selection - simplify to be more direct
   const resetGame = (selectedLevel: number = 1) => {
-    // Cancel any animation frame
+    console.log(`Starting resetGame for level ${selectedLevel}`);
+    
+    // Cancel any existing animation frames (again, for safety)
     if (animationFrameId.current) {
       cancelAnimationFrame(animationFrameId.current);
       animationFrameId.current = null;
     }
     
-    // Clear any lingering interval as a backup
+    // Clear any lingering interval
     if (gameLoopInterval.current) {
       clearInterval(gameLoopInterval.current);
       gameLoopInterval.current = null;
     }
     
-    // Reset timer references
+    // Reset timer reference
     lastUpdateTime.current = 0;
     
-    // Get the selected level configuration
-    const levelConfig = getLevelById(selectedLevel);
-    
-    console.log(`Resetting game for level ${selectedLevel} with speed ${levelConfig.getSpeed()}ms`);
-    
-    // Update the level speed
-    setLevelSpeed(levelConfig.getSpeed());
-    
+    // Reset the score tracker
     scoreTracker.current.reset(selectedLevel);
+    
+    // Get the level configuration
+    const levelConfig = getLevelById(selectedLevel);
     
     // Get obstacles for the selected level
     const levelObstacles = levelConfig.generateObstacles();
     setObstacles(levelObstacles);
     
-    // Initial snake position - starting at top left corner
+    // Set level speed
+    setLevelSpeed(levelConfig.getSpeed());
+    
+    // Initial snake position
     const initialSnake = [
-      { x: 2, y: 1 },  // Head at (2,1)
-      { x: 1, y: 1 },  // Body at (1,1)
-      { x: 0, y: 1 },  // Tail at (0,1)
+      { x: 2, y: 1 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
     ];
     
-    // Make sure food doesn't spawn on obstacles or the snake
-    const initialFood = {
-      ...getRandomPosition(levelObstacles, initialSnake),
-      color: Object.values(COLORS).filter(
-        (c) => c !== COLORS.GREY && c !== COLORS.BLACK
-      )[Math.floor(Math.random() * 5)],
-    };
-    
-    // First update the game state
+    console.log(`Setting game state for level ${selectedLevel}`);
+    // Reset game state
     setGameState({
       ...initialState,
-      showRules: false, // Ensure rules aren't showing
+      showRules: false,
+      showLevelSelection: false,
       level: selectedLevel,
       remainingFood: levelConfig.requiredFood,
+      score: isReplayMode ? 0 : (selectedLevel > 1 ? scoreTracker.current.getBaseLevelScore() : 0),
+      levelStartScore: isReplayMode ? 0 : (selectedLevel > 1 ? scoreTracker.current.getBaseLevelScore() : 0),
       snake: initialSnake,
-      food: initialFood,
-      lives: 3, // Reset lives
-      levelStartScore: 0, // Reset level start score
-      score: 0, // Reset score when starting from a new level
+      food: { 
+        ...getRandomPosition(levelObstacles, initialSnake),
+        color: Object.values(COLORS).filter(
+          (c) => c !== COLORS.GREY && c !== COLORS.BLACK
+        )[Math.floor(Math.random() * 5)],
+      },
+      lives: 3,
     });
     
     setCurrentSessionHighScore(0); // Reset session high score
-    setHighestAchievedScore(0); // Reset highest achieved score
     
-    // CRITICAL FIX: Force start the game loop after a short delay to ensure state is updated
+    console.log(`Starting game loop for level ${selectedLevel}`);
+    // Start the game loop
     setTimeout(() => {
-      // Double-check that no animation frame is running
-      if (animationFrameId.current) {
-        cancelAnimationFrame(animationFrameId.current);
+      if (animationFrameId.current === null) {
+        console.log(`Animation frame starting for level ${selectedLevel}`);
+        lastUpdateTime.current = 0;
+        animationFrameId.current = requestAnimationFrame(gameLoop);
       }
-      
-      // Start a new game loop
-      console.log(`Explicitly starting game loop for level ${selectedLevel}`);
-      lastUpdateTime.current = 0; // Reset time again to be safe
-      animationFrameId.current = requestAnimationFrame(gameLoop);
-    }, 100); // Slightly longer delay to ensure state updates have processed
+    }, 100);
+  };
+
+  // Add a dedicated function to return to level selection
+  const returnToLevelSelection = () => {
+    console.log("Returning to level selection screen");
+    
+    // Cancel any existing animation frames
+    if (animationFrameId.current) {
+      console.log("Cancelling animation frame before return to level selection");
+      cancelAnimationFrame(animationFrameId.current);
+      animationFrameId.current = null;
+    }
+    
+    // Clear any lingering interval
+    if (gameLoopInterval.current) {
+      clearInterval(gameLoopInterval.current);
+      gameLoopInterval.current = null;
+    }
+    
+    // Reset timer reference
+    lastUpdateTime.current = 0;
+    
+    // Clear all game state properly
+    setGameState({
+      ...initialState,
+      showLevelSelection: true,
+      showRules: false,
+    });
+    
+    // Ensure replay mode is set
+    setIsReplayMode(true);
+    
+    // Reset obstacles to empty to avoid stale state
+    setObstacles([]);
+  };
+
+  // Add a header component with a home button for practice mode
+  const GameHeader = () => (
+          <View style={styles.headerContainer}>
+            <View style={styles.scoreContainer}>
+        <View style={styles.levelScoreContainer}>
+          <Text style={[styles.scoreLabel, { color: COLORS.YELLOW }]}>L E V E L</Text>
+          <View style={styles.levelDisplay}>
+            <Text style={[styles.levelNumber, { color: COLORS.YELLOW }]}>{gameState.level}</Text>
+            <Text style={[styles.levelNumber, { color: COLORS.YELLOW, marginHorizontal: 8 }]}>•</Text>
+            <Text style={[styles.scoreValue, { fontSize: 16 }]}>
+              {gameState.score} pts
+            </Text>
+            </View>
+          </View>
+        <View style={styles.scoreItem}>
+          <Text style={[styles.scoreLabel, { color: COLORS.GREEN }]}>TARGET</Text>
+          <View style={styles.targetContainer}>
+            <Text style={styles.scoreValue}>{gameState.remainingFood}</Text>
+            <View style={[styles.targetBlock, { backgroundColor: gameState.snakeColor }]} />
+          </View>
+        </View>
+        {isReplayMode ? (
+          <TouchableOpacity 
+            style={styles.homeButton}
+            onPress={returnToLevelSelection}
+          >
+            <Text style={[styles.homeButtonText]}>Home</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.scoreItem}>
+            <Text style={[styles.scoreLabel, { color: COLORS.RED }]}>LIVES</Text>
+            <Text style={[styles.scoreValue, { letterSpacing: 4 }]}>
+              {Array(3).fill('♡').map((heart, index) => (
+                <Text key={index} style={{ color: index < gameState.lives ? COLORS.RED : 'rgba(255,0,0,0.3)' }}>
+                  {heart}
+                </Text>
+              ))}
+            </Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+
+  // Add PracticeRetryScreen for replay mode
+  const PracticeRetryScreen = () => {
+    return (
+      <View style={styles.gameOver}>
+        <Text style={[styles.gameOverText, { fontSize: 36 }]}>Try Again!</Text>
+        <Text style={[styles.scoreText, { marginTop: 15 }]}>Level {gameState.level}</Text>
+        <View style={styles.practiceButtonsContainer}>
+          <TouchableOpacity 
+            style={[styles.replayButton, { backgroundColor: COLORS.GREEN }]}
+            onPress={() => {
+              // Retry the same level
+              resetGame(gameState.level);
+            }}
+          >
+            <Text style={[styles.replayText, { color: COLORS.BLACK }]}>Retry Level</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.replayButton, { backgroundColor: COLORS.RED, marginTop: 15 }]}
+            onPress={returnToLevelSelection}
+          >
+            <Text style={[styles.replayText, { color: COLORS.WHITE }]}>Level Selection</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   };
 
   return (
     <GestureHandlerRootView style={styles.container}>
-      {gameState.showRules ? (
-        <RulesScreen />
+      {gameState.showRules && !hasCompletedPlaythrough ? (
+        <StartScreen />
+      ) : gameState.showLevelSelection || (gameState.showRules && hasCompletedPlaythrough) ? (
+        <LevelSelectionScreen />
       ) : (
         <>
-          <View style={styles.headerContainer}>
-            <View style={styles.scoreContainer}>
-              <View style={styles.levelScoreContainer}>
-                <Text style={[styles.scoreLabel, { color: COLORS.YELLOW }]}>L E V E L</Text>
-                <View style={styles.levelDisplay}>
-                  <Text style={[styles.levelNumber, { color: COLORS.YELLOW }]}>{gameState.level}</Text>
-                  <Text style={[styles.levelNumber, { color: COLORS.YELLOW, marginHorizontal: 8 }]}>•</Text>
-                  <Text style={[styles.scoreValue, { fontSize: 16 }]}>
-                    {gameState.score} pts
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.scoreItem}>
-                <Text style={[styles.scoreLabel, { color: COLORS.GREEN }]}>TARGET</Text>
-                <View style={styles.targetContainer}>
-                  <Text style={styles.scoreValue}>{gameState.remainingFood}</Text>
-                  <View style={[styles.targetBlock, { backgroundColor: gameState.snakeColor }]} />
-                </View>
-              </View>
-              <View style={styles.scoreItem}>
-                <Text style={[styles.scoreLabel, { color: COLORS.RED }]}>LIVES</Text>
-                <Text style={[styles.scoreValue, { letterSpacing: 4 }]}>
-                  {Array(3).fill('♡').map((heart, index) => (
-                    <Text key={index} style={{ color: index < gameState.lives ? COLORS.RED : 'rgba(255,0,0,0.3)' }}>
-                      {heart}
-                    </Text>
-                  ))}
-                </Text>
-              </View>
-            </View>
-          </View>
+          <GameHeader />
           <GestureDetector gesture={swipeGesture}>
             <View
               style={[styles.gameBoard, { borderColor: gameState.snakeColor }]}
@@ -868,16 +1077,10 @@ export default function Game() {
               ))}
             </View>
           </GestureDetector>
-          {gameState.gameOver && (
-            <View style={[styles.overlay, styles.gameOver]}>
-              {gameState.lives > 0 ? <RetryScreen /> : <GameOverScreen />}
-            </View>
-          )}
-          {gameState.levelComplete && !gameState.gameOver && (
-            <View style={[styles.overlay, styles.levelComplete]}>
-              <LevelCompleteScreen />
-            </View>
-          )}
+          {gameState.gameOver && !isReplayMode && gameState.lives > 0 && <RetryScreen />}
+          {gameState.gameOver && !isReplayMode && gameState.lives <= 0 && <GameOverScreen />}
+          {gameState.gameOver && isReplayMode && <PracticeRetryScreen />}
+          {gameState.levelComplete && <LevelCompleteScreen />}
         </>
       )}
     </GestureHandlerRootView>
@@ -1061,16 +1264,20 @@ const styles = StyleSheet.create({
   },
   rulesText: {
     color: COLORS.GREEN,
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: "monospace",
     textTransform: "uppercase",
     letterSpacing: 1,
-    marginBottom: 10,
-    textShadowColor: "rgba(0, 255, 0, 0.5)",
+    marginBottom: 8,
+    textShadowColor: "rgba(0, 0, 0, 0.8)",
     textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 1,
+    textShadowRadius: 2,
     textAlign: "center",
     width: "100%",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    paddingVertical: 3,
+    paddingHorizontal: 5,
+    borderRadius: 2,
   },
   redLine: {
     width: '90%',
@@ -1106,11 +1313,16 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   levelComplete: {
-    flex: 1,
+    flex: 0,
+    width: '90%',
+    maxWidth: 400,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: COLORS.BLACK,
-    padding: 15,
+    padding: 20,
+    borderRadius: 10,
+    borderWidth: 3,
+    borderColor: COLORS.RED,
   },
   levelCompleteText: {
     color: COLORS.RED,
@@ -1156,27 +1368,26 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   levelGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
-    gap: 6,
-    marginVertical: 15,
-    paddingHorizontal: 8,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 12,
+    marginTop: 10,
+    marginBottom: 10,
+    width: "100%",
+    maxWidth: 350,
   },
   levelCard: {
-    backgroundColor: COLORS.ORANGE,
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 0,
+    width: 50,
+    height: 50,
+    backgroundColor: COLORS.YELLOW,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 5,
     borderWidth: 2,
-    borderColor: "#FFC04D",
-    borderBottomColor: "#CC8400",
-    borderRightColor: "#CC8400",
-    margin: 3,
+    borderColor: "#FFD700",
+    borderBottomColor: "#B8860B",
+    borderRightColor: "#B8860B",
   },
   levelCardTitle: {
     color: COLORS.BLACK,
@@ -1214,5 +1425,138 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.2)",
     marginLeft: -2,
+  },
+  startScreen: {
+    flex: 1,
+    justifyContent: "flex-start",
+    alignItems: "center",
+    backgroundColor: COLORS.BLACK,
+    padding: 10,
+    paddingTop: "5%",
+  },
+  gameTitle: {
+    color: COLORS.RED,
+    fontSize: 36,
+    fontWeight: "bold",
+    fontFamily: "monospace",
+    textTransform: "uppercase",
+    letterSpacing: 3,
+    textShadowColor: "rgba(255, 0, 0, 0.75)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 1,
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  startButton: {
+    backgroundColor: COLORS.GREEN,
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 0,
+    borderWidth: 3,
+    borderColor: "#00FF00",
+    borderBottomColor: "#008000",
+    borderRightColor: "#008000",
+  },
+  startButtonText: {
+    color: COLORS.BLACK,
+    fontSize: 24,
+    fontWeight: "bold",
+    fontFamily: "monospace",
+    textTransform: "uppercase",
+    letterSpacing: 2,
+  },
+  levelSelection: {
+    flex: 1,
+    justifyContent: "flex-start",
+    alignItems: "center",
+    backgroundColor: COLORS.BLACK,
+    padding: 10,
+    paddingTop: "5%",
+  },
+  levelSelectionTitle: {
+    color: COLORS.RED,
+    fontSize: 36,
+    fontWeight: "bold",
+    fontFamily: "monospace",
+    textTransform: "uppercase",
+    letterSpacing: 3,
+    textShadowColor: "rgba(255, 0, 0, 0.75)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 1,
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  levelCardText: {
+    color: COLORS.BLACK,
+    fontSize: 20,
+    fontWeight: "bold",
+    fontFamily: "monospace",
+  },
+  levelCompleteOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+  },
+  practiceText: {
+    color: COLORS.RED,
+    fontSize: 16,
+    fontWeight: "bold",
+    fontFamily: "monospace",
+    textAlign: "center",
+    marginBottom: 20,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 3,
+    textShadowColor: "rgba(0, 0, 0, 1)",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
+  },
+  homeButton: {
+    backgroundColor: COLORS.RED,
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: "#FF0000",
+    borderBottomColor: "#800000",
+    borderRightColor: "#800000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  homeButtonText: {
+    color: COLORS.WHITE,
+    fontSize: 16,
+    fontWeight: "bold",
+    fontFamily: "monospace",
+    textTransform: "uppercase",
+  },
+  practiceButtonsContainer: {
+    marginTop: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "80%",
+    maxWidth: 300,
+  },
+  levelCardDisabled: {
+    opacity: 0.6,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: 5,
   },
 });
